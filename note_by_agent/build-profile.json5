@@ -1,0 +1,56 @@
+{
+  "app": {
+    "signingConfigs": [
+      {
+        "name": "default",
+        "type": "HarmonyOS",
+        "material": {
+          "certpath": "C:\\Users\\ThinkPad\\.ohos\\config\\default_note_by_agent_AcUM-XtwK7Ft-jxhZvrITYiSIkibKbL7W2HMU8DdjbQ=.cer",
+          "keyAlias": "debugKey",
+          "keyPassword": "0000001B5FE5D68A0406E860210BEAC6F6A6BD8E06234F3878F139CE7627E3506F908505AE97D7F9C77F71",
+          "profile": "C:\\Users\\ThinkPad\\.ohos\\config\\default_note_by_agent_AcUM-XtwK7Ft-jxhZvrITYiSIkibKbL7W2HMU8DdjbQ=.p7b",
+          "signAlg": "SHA256withECDSA",
+          "storeFile": "C:\\Users\\ThinkPad\\.ohos\\config\\default_note_by_agent_AcUM-XtwK7Ft-jxhZvrITYiSIkibKbL7W2HMU8DdjbQ=.p12",
+          "storePassword": "0000001BBA74DE2D9E6CDA25A4C039E3D4AC25542949615B20E4C7A87E8F0D5B849E32960688F4520DFA4A"
+        }
+      }
+    ],
+    "products": [
+      {
+        "name": "default",
+        "signingConfig": "default",
+        "targetSdkVersion": "5.1.1(19)",
+        "compatibleSdkVersion": "5.1.1(19)",
+        "runtimeOS": "HarmonyOS",
+        "buildOption": {
+          "strictMode": {
+            "caseSensitiveCheck": true,
+            "useNormalizedOHMUrl": true
+          }
+        }
+      }
+    ],
+    "buildModeSet": [
+      {
+        "name": "debug",
+      },
+      {
+        "name": "release"
+      }
+    ]
+  },
+  "modules": [
+    {
+      "name": "entry",
+      "srcPath": "./entry",
+      "targets": [
+        {
+          "name": "default",
+          "applyToProducts": [
+            "default"
+          ]
+        }
+      ]
+    }
+  ]
+}
