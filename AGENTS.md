@@ -52,6 +52,17 @@ $env:PATH = "E:\Softs\Huawei\DevEco Studio\jbr\bin;" + $env:PATH
 - 改完代码先命令行构建自检，再让用户在 DevEco 查看效果。
 - 运行时需要有已连接的设备/模拟器。
 
+### 布局坐标校验（无需看图）
+
+应用在前台时，可导出 UI 树查真实坐标/尺寸：
+
+```powershell
+& $hdc shell uitest dumpLayout -p /data/local/tmp/layout.json
+& $hdc file recv /data/local/tmp/layout.json "C:\Users\ThinkPad\AppData\Local\Temp\opencode\layout.json"
+```
+
+用 Node 解析 JSON，比用 PowerShell `ConvertFrom-Json` 稳（后者可能因重复键失败）。
+
 ## 目录约定
 
 ```

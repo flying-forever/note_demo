@@ -17,6 +17,30 @@ struct Index {
     return FAKE_NOTES.filter((item: Note) => item.group === this.selectedGroup);
   }
 
+  private estimateHeight(note: Note): number {
+    const titleLines: number = Math.min(2, Math.ceil(note.title.length / 9));
+    const summaryLines: number = Math.min(4, Math.ceil(note.summary.length / 10));
+    return titleLines * 22 + summaryLines * 19 + 56;
+  }
+
+  private notesForColumn(column: number): Note[] {
+    const left: Note[] = [];
+    const right: Note[] = [];
+    let leftHeight: number = 0;
+    let rightHeight: number = 0;
+    this.notes().forEach((note: Note) => {
+      const height: number = this.estimateHeight(note);
+      if (leftHeight <= rightHeight) {
+        left.push(note);
+        leftHeight += height;
+      } else {
+        right.push(note);
+        rightHeight += height;
+      }
+    });
+    return column === 0 ? left : right;
+  }
+
   private hideSearch(): void {
     this.pullDistance = 0;
     this.getUIContext().animateTo({ duration: 150, curve: Curve.EaseOut }, () => {
@@ -123,27 +147,28 @@ struct Index {
   @Builder
   GroupBar() {
     Row() {
-      Scroll() {
-        Row() {
-          ForEach(NOTE_GROUPS, (group: string) => {
-            Text(group)
-              .fontSize(15)
-              .fontWeight(this.selectedGroup === group ? FontWeight.Medium : FontWeight.Normal)
-              .fontColor(this.selectedGroup === group ? $r('app.color.accent') : $r('app.color.text_secondary'))
-              .margin({ right: 20 })
-              .onClick(() => {
-                this.selectedGroup = group;
-              })
-          }, (group: string) => group)
-        }
-        .height('100%')
-        .alignItems(VerticalAlign.Center)
-        .padding({ left: 16 })
+      List({ space: 20 }) {
+        ForEach(NOTE_GROUPS, (group: string) => {
+          ListItem() {
+            Row() {
+              Text(group)
+                .fontSize(15)
+                .fontWeight(this.selectedGroup === group ? FontWeight.Medium : FontWeight.Normal)
+                .fontColor(this.selectedGroup === group ? $r('app.color.accent') : $r('app.color.text_secondary'))
+                .onClick(() => {
+                  this.selectedGroup = group;
+                })
+            }
+            .height('100%')
+            .alignItems(VerticalAlign.Center)
+          }
+        }, (group: string) => group)
       }
-      .scrollable(ScrollDirection.Horizontal)
+      .listDirection(Axis.Horizontal)
       .scrollBar(BarState.Off)
       .layoutWeight(1)
       .height(44)
+      .padding({ left: 16 })
 
       Row() {
         Divider()
@@ -164,6 +189,21 @@ struct Index {
     }
     .width('100%')
     .height(44)
+  }
+
+  @Builder
+  NoteItem(item: Note) {
+    Column() {
+      NoteCard({
+        title: item.title,
+        summary: item.summary,
+        timeLabel: item.timeLabel
+      })
+    }
+    .width('100%')
+    .onClick(() => {
+      this.getUIContext().getPromptAction().showToast({ message: '编辑页待实现' });
+    })
   }
 
   @Builder
@@ -202,34 +242,34 @@ struct Index {
           if (this.notes().length === 0) {
             this.EmptyView()
           } else {
-            WaterFlow() {
-              ForEach(this.notes(), (item: Note) => {
-                FlowItem() {
-                  Column() {
-                    NoteCard({
-                      title: item.title,
-                      summary: item.summary,
-                      timeLabel: item.timeLabel
-                    })
-                  }
-                  .width('100%')
-                  .onClick(() => {
-                    this.getUIContext().getPromptAction().showToast({ message: '编辑页待实现' });
-                  })
+            Scroll() {
+              Row({ space: 12 }) {
+                Column({ space: 12 }) {
+                  ForEach(this.notesForColumn(0), (item: Note) => {
+                    this.NoteItem(item)
+                  }, (item: Note) => item.id)
                 }
-              }, (item: Note) => item.id)
+                .layoutWeight(1)
+                .alignItems(HorizontalAlign.Start)
+
+                Column({ space: 12 }) {
+                  ForEach(this.notesForColumn(1), (item: Note) => {
+                    this.NoteItem(item)
+                  }, (item: Note) => item.id)
+                }
+                .layoutWeight(1)
+                .alignItems(HorizontalAlign.Start)
+              }
+              .width('100%')
+              .alignItems(VerticalAlign.Top)
+              .padding({ left: 16, right: 16, top: 4, bottom: 96 })
             }
-            .columnsTemplate('1fr 1fr')
-            .columnsGap(12)
-            .rowsGap(12)
-            .padding({ left: 16, right: 16, top: 4, bottom: 96 })
             .layoutWeight(1)
             .width('100%')
-            .cachedCount(6)
             .scrollBar(BarState.Off)
             .edgeEffect(EdgeEffect.Spring)
-            .onDidScroll((scrollOffset: number, scrollState: ScrollState) => {
-              this.onListScroll(scrollOffset, scrollState);
+            .onDidScroll((xOffset: number, yOffset: number, scrollState: ScrollState) => {
+              this.onListScroll(yOffset, scrollState);
             })
           }
         } else {
