@@ -7,6 +7,8 @@ const GROUP_BAR_HEIGHT: number = 44;
 const COLLAPSE_DISTANCE: number = HEADER_SLOT_HEIGHT;
 const SEARCH_PULL_THRESHOLD: number = 30;
 const SEARCH_PULL_MAX: number = 60;
+const SEARCH_ROW_HEIGHT: number = 56;
+const SEARCH_ANIMATION_DURATION: number = 180;
 
 @Entry
 @Component
@@ -17,6 +19,9 @@ struct Index {
   @State searchExpanded: boolean = false;
   @State pullDistance: number = 0;
   @State collapseProgress: number = 0;
+
+  private searchAnimating: boolean = false;
+  private touchingList: boolean = false;
 
   private scroller: Scroller = new Scroller();
 
@@ -55,26 +60,33 @@ struct Index {
     return this.currentTab === 0 ? '笔记' : '待办';
   }
 
-  private cancelPull(): void {
-    if (this.pullDistance === 0 && this.searchProgress === 0) {
-      return;
-    }
-    this.pullDistance = 0;
-    this.getUIContext().animateTo({ duration: 150, curve: Curve.EaseOut }, () => {
-      this.searchProgress = 0;
-    });
-  }
-
   private hideSearch(): void {
     this.searchExpanded = false;
-    this.cancelPull();
+    this.pullDistance = 0;
+    this.searchAnimating = true;
+    this.getUIContext().animateTo({
+      duration: SEARCH_ANIMATION_DURATION,
+      curve: Curve.EaseOut,
+      onFinish: () => {
+        this.searchAnimating = false;
+      }
+    }, () => {
+      this.searchProgress = 0;
+    });
   }
 
   private expandSearch(): void {
     this.searchExpanded = true;
     this.pullDistance = 0;
     this.collapseProgress = 0;
-    this.getUIContext().animateTo({ duration: 180, curve: Curve.EaseOut }, () => {
+    this.searchAnimating = true;
+    this.getUIContext().animateTo({
+      duration: SEARCH_ANIMATION_DURATION,
+      curve: Curve.EaseOut,
+      onFinish: () => {
+        this.searchAnimating = false;
+      }
+    }, () => {
       this.searchProgress = 1;
     });
   }
@@ -95,17 +107,13 @@ struct Index {
     const offset: number = this.scroller.currentOffset().yOffset;
     const atTop: boolean = offset <= 0.5;
 
-    if (this.searchExpanded) {
-      if (offset > 8) {
-        this.hideSearch();
-      } else {
-        return;
-      }
+    if (this.searchExpanded || this.searchAnimating) {
+      return;
     }
 
     this.collapseProgress = Math.min(1, Math.max(0, offset / COLLAPSE_DISTANCE));
 
-    if (atTop && deltaY < 0) {
+    if (atTop && deltaY < 0 && this.touchingList && scrollState === ScrollState.Scroll) {
       this.pullDistance = Math.min(SEARCH_PULL_MAX, this.pullDistance - deltaY);
       if (this.pullDistance >= SEARCH_PULL_THRESHOLD) {
         this.expandSearch();
@@ -114,7 +122,7 @@ struct Index {
     }
 
     if (deltaY > 0 || scrollState === ScrollState.Idle) {
-      this.cancelPull();
+      this.pullDistance = 0;
     }
   }
 
@@ -185,21 +193,30 @@ struct Index {
   }
 
   @Builder
-  HeaderSlot(showSearch: boolean) {
+  HeaderSlot() {
     Stack({ alignContent: Alignment.Start }) {
       Text(this.currentTitle())
         .fontSize(LARGE_TITLE_FONT_SIZE)
         .fontWeight(FontWeight.Bold)
         .fontColor($r('app.color.text_primary'))
         .maxLines(1)
-        .opacity((1 - this.collapseProgress) * (1 - this.searchProgress))
-      if (showSearch) {
-        this.SearchBar()
-      }
+        .opacity(1 - this.collapseProgress)
     }
     .width('100%')
     .height(HEADER_SLOT_HEIGHT * (1 - this.collapseProgress))
     .padding({ left: 16, right: 16 })
+    .clip(true)
+  }
+
+  @Builder
+  SearchRow() {
+    Column() {
+      this.SearchBar()
+    }
+    .width('100%')
+    .height(SEARCH_ROW_HEIGHT * this.searchProgress)
+    .padding({ left: 16, right: 16 })
+    .justifyContent(FlexAlign.Center)
     .clip(true)
   }
 
@@ -322,12 +339,31 @@ struct Index {
         .padding({ left: 16, right: 16, top: 4, bottom: 96 })
       }
       .width('100%')
-      .padding({ top: HEADER_SLOT_HEIGHT + GROUP_BAR_HEIGHT })
+      .padding({ top: HEADER_SLOT_HEIGHT + GROUP_BAR_HEIGHT + SEARCH_ROW_HEIGHT * this.searchProgress })
     }
     .width('100%')
     .height('100%')
     .scrollBar(BarState.Off)
     .edgeEffect(EdgeEffect.Spring)
+    .onTouch((event: TouchEvent) => {
+      if (event.type === TouchType.Down) {
+        this.touchingList = true;
+        this.pullDistance = 0;
+      } else if (event.type === TouchType.Up || event.type === TouchType.Cancel) {
+        this.touchingList = false;
+        this.pullDistance = 0;
+      }
+    })
+    .onWillScroll((xOffset: number, yOffset: number, scrollState: ScrollState) => {
+      if (this.searchAnimating) {
+        return { xOffset: xOffset, yOffset: 0 };
+      }
+      if (this.searchExpanded && yOffset > 0 && this.touchingList && scrollState === ScrollState.Scroll) {
+        this.hideSearch();
+        return { xOffset: xOffset, yOffset: 0 };
+      }
+      return { xOffset: xOffset, yOffset: yOffset };
+    })
     .onDidScroll((xOffset: number, yOffset: number, scrollState: ScrollState) => {
       this.onListScroll(yOffset, scrollState);
     })
@@ -350,7 +386,8 @@ struct Index {
               this.NoteList()
             }
             Column() {
-              this.HeaderSlot(true)
+              this.HeaderSlot()
+              this.SearchRow()
               this.GroupBar()
             }
             .width('100%')
@@ -360,7 +397,7 @@ struct Index {
           .width('100%')
         } else {
           Column() {
-            this.HeaderSlot(false)
+            this.HeaderSlot()
             this.TodoView()
           }
           .layoutWeight(1)
