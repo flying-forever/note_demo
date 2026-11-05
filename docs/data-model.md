@@ -13,6 +13,7 @@
 | `updatedAt` | number | 更新时间戳 |
 | `pinned` | boolean | 是否置顶 |
 | `folderId` | string \| null | 所属文件夹，null 为默认 |
+| `group` | string \| null | 首页分组名称（旅途/美食/攻略/随记） |
 | `color` | string \| null | 标签/卡片颜色，可空 |
 | `deleted` | boolean | 回收站标记 |
 

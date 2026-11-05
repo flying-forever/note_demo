@@ -18,7 +18,39 @@
 - 模块：`entry`（唯一 entry 模块）
 - 当前入口页：`entry/src/main/ets/pages/Index.ets`（`pages/Index`）
 - 测试：`@ohos/hypium` + `@ohos/hamock`
-- 构建/预览：在 DevEco Studio 中 Build / Previewer 运行（工程未检出 hvigorw 包装脚本）
+- 构建/预览：DevEco Studio Build / Previewer，或下面的命令行（工程未检出 hvigorw 包装脚本）
+
+## 构建与运行（命令行，已验证）
+
+本机 DevEco 安装在 `E:\Softs\Huawei\DevEco Studio`（以下路径为本机专用，换机需调整）。
+
+```powershell
+# 1. 必需环境变量，否则报 00303217 Configuration Error
+$env:DEVECO_SDK_HOME = "E:\Softs\Huawei\DevEco Studio\sdk"
+
+# 2. 签名需用 DevEco 自带 JBR，否则系统 JDK 17.0.8 会报 Invalid CEN header
+$env:PATH = "E:\Softs\Huawei\DevEco Studio\jbr\bin;" + $env:PATH
+
+# 2. 构建（在 note_by_agent/ 下执行）
+& "E:\Softs\Huawei\DevEco Studio\tools\hvigor\bin\hvigorw.bat" `
+  --mode module -p product=default -p module=entry@default -p buildMode=debug `
+  assembleHap --no-daemon
+
+# 3. 安装
+& "E:\Softs\Huawei\DevEco Studio\sdk\default\openharmony\toolchains\hdc.exe" `
+  install -r "entry\build\default\outputs\default\entry-default-signed.hap"
+
+# 4. 启动
+& "E:\Softs\Huawei\DevEco Studio\sdk\default\openharmony\toolchains\hdc.exe" `
+  shell aa start -b com.example.note_by_agent -a EntryAbility
+
+# 查看已连接设备（设备序列号会变，勿硬编码）
+& "E:\Softs\Huawei\DevEco Studio\sdk\default\openharmony\toolchains\hdc.exe" list targets
+```
+
+- 产物：`entry/build/default/outputs/default/entry-default-signed.hap`
+- 改完代码先命令行构建自检，再让用户在 DevEco 查看效果。
+- 运行时需要有已连接的设备/模拟器。
 
 ## 目录约定
 
@@ -47,7 +79,7 @@ note_by_agent/entry/src/main/ets/
 1. 每次只做一个页面或一个功能闭环。
 2. 先对齐需求（用户口头描述布局/交互），同步更新 `docs/pages.md`。
 3. 实现时尽量少改文件，完成后列出改动清单。
-4. 用户在 DevEco Studio 构建，把完整报错原样贴回。
+4. 我优先用命令行构建自检；用户在 DevEco Studio 运行并把视觉/完整报错原样贴回。
 5. 视觉差异由用户反馈，逐条修正。
 6. 不自动执行 git commit / push，除非用户明确要求。
 7. 设计不确定时先问，不自行臆造。
