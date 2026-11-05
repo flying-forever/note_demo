@@ -1,6 +1,13 @@
 import { NoteCard } from '../components/NoteCard';
 import { FAKE_NOTES, GROUP_ALL, NOTE_GROUPS, Note } from '../model/Note';
 
+const LARGE_TITLE_FONT_SIZE: number = 44;
+const HEADER_SLOT_HEIGHT: number = 56;
+const GROUP_BAR_HEIGHT: number = 44;
+const COLLAPSE_DISTANCE: number = HEADER_SLOT_HEIGHT;
+const SEARCH_PULL_THRESHOLD: number = 30;
+const SEARCH_PULL_MAX: number = 60;
+
 @Entry
 @Component
 struct Index {
@@ -9,6 +16,9 @@ struct Index {
   @State searchProgress: number = 0;
   @State searchExpanded: boolean = false;
   @State pullDistance: number = 0;
+  @State collapseProgress: number = 0;
+
+  private scroller: Scroller = new Scroller();
 
   private notes(): Note[] {
     if (this.selectedGroup === GROUP_ALL) {
@@ -41,106 +51,155 @@ struct Index {
     return column === 0 ? left : right;
   }
 
-  private hideSearch(): void {
+  private currentTitle(): string {
+    return this.currentTab === 0 ? '笔记' : '待办';
+  }
+
+  private cancelPull(): void {
+    if (this.pullDistance === 0 && this.searchProgress === 0) {
+      return;
+    }
     this.pullDistance = 0;
     this.getUIContext().animateTo({ duration: 150, curve: Curve.EaseOut }, () => {
-      this.searchExpanded = false;
       this.searchProgress = 0;
     });
   }
 
-  private onListScroll(scrollOffset: number, scrollState: ScrollState): void {
-    if (this.searchExpanded) {
+  private hideSearch(): void {
+    this.searchExpanded = false;
+    this.cancelPull();
+  }
+
+  private expandSearch(): void {
+    this.searchExpanded = true;
+    this.pullDistance = 0;
+    this.collapseProgress = 0;
+    this.getUIContext().animateTo({ duration: 180, curve: Curve.EaseOut }, () => {
+      this.searchProgress = 1;
+    });
+  }
+
+  private switchTab(tab: number): void {
+    if (this.currentTab === tab) {
       return;
     }
-    if (scrollOffset < 0) {
-      this.pullDistance = Math.min(60, this.pullDistance - scrollOffset);
-      this.searchProgress = Math.min(1, this.pullDistance / 36);
-      if (this.pullDistance >= 30) {
-        this.searchExpanded = true;
-        this.searchProgress = 1;
+    this.hideSearch();
+    this.collapseProgress = 0;
+    this.currentTab = tab;
+  }
+
+  private onListScroll(deltaY: number, scrollState: ScrollState): void {
+    if (this.currentTab !== 0) {
+      return;
+    }
+    const offset: number = this.scroller.currentOffset().yOffset;
+    const atTop: boolean = offset <= 0.5;
+
+    if (this.searchExpanded) {
+      if (offset > 8) {
+        this.hideSearch();
+      } else {
+        return;
+      }
+    }
+
+    this.collapseProgress = Math.min(1, Math.max(0, offset / COLLAPSE_DISTANCE));
+
+    if (atTop && deltaY < 0) {
+      this.pullDistance = Math.min(SEARCH_PULL_MAX, this.pullDistance - deltaY);
+      if (this.pullDistance >= SEARCH_PULL_THRESHOLD) {
+        this.expandSearch();
       }
       return;
     }
-    if (scrollOffset > 0) {
-      this.pullDistance = 0;
-      this.searchProgress = 0;
-      return;
-    }
-    if (scrollState === ScrollState.Idle && this.pullDistance > 0) {
-      this.pullDistance = 0;
-      this.getUIContext().animateTo({ duration: 150, curve: Curve.EaseOut }, () => {
-        this.searchProgress = 0;
-      });
+
+    if (deltaY > 0 || scrollState === ScrollState.Idle) {
+      this.cancelPull();
     }
   }
 
   @Builder
   TopBar() {
-    Row() {
-      Text('笔记')
-        .fontSize(this.currentTab === 0 ? 22 : 17)
-        .fontWeight(this.currentTab === 0 ? FontWeight.Bold : FontWeight.Normal)
-        .fontColor(this.currentTab === 0 ? $r('app.color.text_primary') : $r('app.color.text_secondary'))
-        .margin({ right: 20 })
-        .onClick(() => {
-          this.currentTab = 0;
-        })
-      Text('待办')
-        .fontSize(this.currentTab === 1 ? 22 : 17)
-        .fontWeight(this.currentTab === 1 ? FontWeight.Bold : FontWeight.Normal)
-        .fontColor(this.currentTab === 1 ? $r('app.color.text_primary') : $r('app.color.text_secondary'))
-        .onClick(() => {
-          this.currentTab = 1;
-          this.hideSearch();
-        })
-      Blank()
-      Image($r('app.media.ic_settings'))
-        .width(22)
-        .height(22)
-        .onClick(() => {
-          this.getUIContext().getPromptAction().showToast({ message: '设置页待实现' });
-        })
+    Stack({ alignContent: Alignment.Center }) {
+      Row() {
+        Text('笔记')
+          .fontSize(this.currentTab === 0 ? 22 : 17)
+          .fontWeight(this.currentTab === 0 ? FontWeight.Bold : FontWeight.Normal)
+          .fontColor(this.currentTab === 0 ? $r('app.color.text_primary') : $r('app.color.text_secondary'))
+          .margin({ right: 20 })
+          .onClick(() => {
+            this.switchTab(0);
+          })
+        Text('待办')
+          .fontSize(this.currentTab === 1 ? 22 : 17)
+          .fontWeight(this.currentTab === 1 ? FontWeight.Bold : FontWeight.Normal)
+          .fontColor(this.currentTab === 1 ? $r('app.color.text_primary') : $r('app.color.text_secondary'))
+          .onClick(() => {
+            this.switchTab(1);
+          })
+        Blank()
+        Image($r('app.media.ic_settings'))
+          .width(22)
+          .height(22)
+          .onClick(() => {
+            this.getUIContext().getPromptAction().showToast({ message: '设置页待实现' });
+          })
+      }
+      .width('100%')
+      .alignItems(VerticalAlign.Center)
+      .padding({ left: 16, right: 16, top: 10, bottom: 6 })
+
+      Text(this.currentTitle())
+        .fontSize(17)
+        .fontWeight(FontWeight.Medium)
+        .fontColor($r('app.color.text_primary'))
+        .opacity(this.collapseProgress)
+        .hitTestBehavior(HitTestMode.None)
     }
     .width('100%')
-    .alignItems(VerticalAlign.Center)
-    .padding({ left: 16, right: 16, top: 10, bottom: 6 })
   }
 
   @Builder
   SearchBar() {
-    Column() {
-      Row() {
-        Image($r('app.media.ic_search'))
-          .width(16)
-          .height(16)
-        TextInput({ placeholder: '搜索笔记' })
-          .fontSize(14)
-          .fontColor($r('app.color.text_primary'))
-          .placeholderColor($r('app.color.text_tertiary'))
-          .placeholderFont({ size: 14 })
-          .backgroundColor(Color.Transparent)
-          .layoutWeight(1)
-          .height(40)
-          .padding({ left: 8, right: 0 })
-        Text('取消')
-          .fontSize(13)
-          .fontColor($r('app.color.accent'))
-          .padding({ left: 8, right: 8 })
-          .onClick(() => {
-            this.hideSearch();
-          })
-      }
-      .width('100%')
-      .height(40)
-      .padding({ left: 12, right: 4 })
-      .backgroundColor($r('app.color.card_bg'))
-      .borderRadius(20)
+    Row() {
+      Image($r('app.media.ic_search'))
+        .width(16)
+        .height(16)
+      TextInput({ placeholder: '搜索笔记' })
+        .fontSize(14)
+        .fontColor($r('app.color.text_primary'))
+        .placeholderColor($r('app.color.text_tertiary'))
+        .placeholderFont({ size: 14 })
+        .backgroundColor(Color.Transparent)
+        .layoutWeight(1)
+        .height(40)
+        .padding({ left: 8, right: 12 })
     }
     .width('100%')
-    .height(48 * this.searchProgress)
+    .height(40)
+    .padding({ left: 12, right: 12 })
+    .backgroundColor($r('app.color.card_bg'))
+    .borderRadius(20)
     .opacity(this.searchProgress)
-    .padding({ left: 16, right: 16, top: 4, bottom: 4 })
+    .hitTestBehavior(this.searchProgress > 0 ? HitTestMode.Default : HitTestMode.None)
+  }
+
+  @Builder
+  HeaderSlot(showSearch: boolean) {
+    Stack({ alignContent: Alignment.Start }) {
+      Text(this.currentTitle())
+        .fontSize(LARGE_TITLE_FONT_SIZE)
+        .fontWeight(FontWeight.Bold)
+        .fontColor($r('app.color.text_primary'))
+        .maxLines(1)
+        .opacity((1 - this.collapseProgress) * (1 - this.searchProgress))
+      if (showSearch) {
+        this.SearchBar()
+      }
+    }
+    .width('100%')
+    .height(HEADER_SLOT_HEIGHT * (1 - this.collapseProgress))
+    .padding({ left: 16, right: 16 })
     .clip(true)
   }
 
@@ -156,7 +215,14 @@ struct Index {
                 .fontWeight(this.selectedGroup === group ? FontWeight.Medium : FontWeight.Normal)
                 .fontColor(this.selectedGroup === group ? $r('app.color.accent') : $r('app.color.text_secondary'))
                 .onClick(() => {
+                  if (this.selectedGroup === group) {
+                    return;
+                  }
                   this.selectedGroup = group;
+                  this.collapseProgress = 0;
+                  if (this.notes().length > 0) {
+                    this.scroller.scrollTo({ xOffset: 0, yOffset: 0 });
+                  }
                 })
             }
             .height('100%')
@@ -167,7 +233,7 @@ struct Index {
       .listDirection(Axis.Horizontal)
       .scrollBar(BarState.Off)
       .layoutWeight(1)
-      .height(44)
+      .height(GROUP_BAR_HEIGHT)
       .padding({ left: 16 })
 
       Row() {
@@ -188,7 +254,7 @@ struct Index {
       })
     }
     .width('100%')
-    .height(44)
+    .height(GROUP_BAR_HEIGHT)
   }
 
   @Builder
@@ -213,8 +279,8 @@ struct Index {
         .fontSize(15)
         .fontColor($r('app.color.text_tertiary'))
     }
-    .layoutWeight(1)
     .width('100%')
+    .height('100%')
     .justifyContent(FlexAlign.Center)
   }
 
@@ -230,50 +296,75 @@ struct Index {
     .justifyContent(FlexAlign.Center)
   }
 
+  @Builder
+  NoteList() {
+    Scroll(this.scroller) {
+      Column() {
+        Row({ space: 12 }) {
+          Column({ space: 12 }) {
+            ForEach(this.notesForColumn(0), (item: Note) => {
+              this.NoteItem(item)
+            }, (item: Note) => item.id)
+          }
+          .layoutWeight(1)
+          .alignItems(HorizontalAlign.Start)
+
+          Column({ space: 12 }) {
+            ForEach(this.notesForColumn(1), (item: Note) => {
+              this.NoteItem(item)
+            }, (item: Note) => item.id)
+          }
+          .layoutWeight(1)
+          .alignItems(HorizontalAlign.Start)
+        }
+        .width('100%')
+        .alignItems(VerticalAlign.Top)
+        .padding({ left: 16, right: 16, top: 4, bottom: 96 })
+      }
+      .width('100%')
+      .padding({ top: HEADER_SLOT_HEIGHT + GROUP_BAR_HEIGHT })
+    }
+    .width('100%')
+    .height('100%')
+    .scrollBar(BarState.Off)
+    .edgeEffect(EdgeEffect.Spring)
+    .onDidScroll((xOffset: number, yOffset: number, scrollState: ScrollState) => {
+      this.onListScroll(yOffset, scrollState);
+    })
+    .onReachStart(() => {
+      if (!this.searchExpanded) {
+        this.collapseProgress = 0;
+      }
+    })
+  }
+
   build() {
     Stack({ alignContent: Alignment.BottomEnd }) {
       Column() {
         this.TopBar()
         if (this.currentTab === 0) {
-          if (this.searchProgress > 0) {
-            this.SearchBar()
-          }
-          this.GroupBar()
-          if (this.notes().length === 0) {
-            this.EmptyView()
-          } else {
-            Scroll() {
-              Row({ space: 12 }) {
-                Column({ space: 12 }) {
-                  ForEach(this.notesForColumn(0), (item: Note) => {
-                    this.NoteItem(item)
-                  }, (item: Note) => item.id)
-                }
-                .layoutWeight(1)
-                .alignItems(HorizontalAlign.Start)
-
-                Column({ space: 12 }) {
-                  ForEach(this.notesForColumn(1), (item: Note) => {
-                    this.NoteItem(item)
-                  }, (item: Note) => item.id)
-                }
-                .layoutWeight(1)
-                .alignItems(HorizontalAlign.Start)
-              }
-              .width('100%')
-              .alignItems(VerticalAlign.Top)
-              .padding({ left: 16, right: 16, top: 4, bottom: 96 })
+          Stack({ alignContent: Alignment.Top }) {
+            if (this.notes().length === 0) {
+              this.EmptyView()
+            } else {
+              this.NoteList()
             }
-            .layoutWeight(1)
+            Column() {
+              this.HeaderSlot(true)
+              this.GroupBar()
+            }
             .width('100%')
-            .scrollBar(BarState.Off)
-            .edgeEffect(EdgeEffect.Spring)
-            .onDidScroll((xOffset: number, yOffset: number, scrollState: ScrollState) => {
-              this.onListScroll(yOffset, scrollState);
-            })
+            .backgroundColor($r('app.color.page_bg'))
           }
+          .layoutWeight(1)
+          .width('100%')
         } else {
-          this.TodoView()
+          Column() {
+            this.HeaderSlot(false)
+            this.TodoView()
+          }
+          .layoutWeight(1)
+          .width('100%')
         }
       }
       .width('100%')
