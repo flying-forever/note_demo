@@ -1,5 +1,6 @@
 import { NoteCard } from '../components/NoteCard';
-import { FAKE_NOTES, GROUP_ALL, NOTE_GROUPS, Note } from '../model/Note';
+import { GROUP_ALL, NOTE_GROUPS, Note, noteCardTitle } from '../model/Note';
+import { listNotes, NoteEditorParams } from '../model/NoteStore';
 
 const LARGE_TITLE_FONT_SIZE: number = 44;
 const HEADER_SLOT_HEIGHT: number = 56;
@@ -16,22 +17,32 @@ struct Index {
   @State selectedGroup: string = GROUP_ALL;
   @State searchProgress: number = 0;
   @State collapseProgress: number = 0;
+  @State private allNotes: Note[] = listNotes();
 
   private searchReleaseTimer: number = -1;
   private touchingList: boolean = false;
 
   private scroller: Scroller = new Scroller();
 
+  onPageShow(): void {
+    this.allNotes = listNotes();
+  }
+
+  private openEditor(id: string): void {
+    const params: NoteEditorParams = { id: id, group: this.selectedGroup === GROUP_ALL ? '' : this.selectedGroup };
+    this.getUIContext().getRouter().pushUrl({ url: 'pages/NoteEditor', params: params });
+  }
+
   private notes(): Note[] {
     if (this.selectedGroup === GROUP_ALL) {
-      return FAKE_NOTES;
+      return this.allNotes;
     }
-    return FAKE_NOTES.filter((item: Note) => item.group === this.selectedGroup);
+    return this.allNotes.filter((item: Note) => item.group === this.selectedGroup);
   }
 
   private estimateHeight(note: Note): number {
-    const titleLines: number = Math.min(2, Math.ceil(note.title.length / 9));
-    const summaryLines: number = Math.min(4, Math.ceil(note.summary.length / 10));
+    const titleLines: number = Math.min(2, Math.ceil(noteCardTitle(note).length / 9));
+    const summaryLines: number = Math.min(4, Math.ceil(note.content.length / 10));
     return titleLines * 22 + summaryLines * 19 + 56;
   }
 
@@ -258,14 +269,14 @@ struct Index {
   NoteItem(item: Note) {
     Column() {
       NoteCard({
-        title: item.title,
-        summary: item.summary,
+        title: noteCardTitle(item),
+        summary: item.content.trim(),
         timeLabel: item.timeLabel
       })
     }
     .width('100%')
     .onClick(() => {
-      this.getUIContext().getPromptAction().showToast({ message: '编辑页待实现' });
+      this.openEditor(item.id);
     })
   }
 
@@ -301,7 +312,7 @@ struct Index {
           Column({ space: 12 }) {
             ForEach(this.notesForColumn(0), (item: Note) => {
               this.NoteItem(item)
-            }, (item: Note) => item.id)
+            }, (item: Note) => JSON.stringify(item))
           }
           .layoutWeight(1)
           .alignItems(HorizontalAlign.Start)
@@ -309,7 +320,7 @@ struct Index {
           Column({ space: 12 }) {
             ForEach(this.notesForColumn(1), (item: Note) => {
               this.NoteItem(item)
-            }, (item: Note) => item.id)
+            }, (item: Note) => JSON.stringify(item))
           }
           .layoutWeight(1)
           .alignItems(HorizontalAlign.Start)
@@ -394,7 +405,11 @@ struct Index {
       .shadow({ radius: 10, color: '#33000000', offsetX: 0, offsetY: 4 })
       .margin({ right: 20, bottom: 36 })
       .onClick(() => {
-        this.getUIContext().getPromptAction().showToast({ message: this.currentTab === 0 ? '新建笔记待实现' : '新建待办待实现' });
+        if (this.currentTab === 0) {
+          this.openEditor('');
+        } else {
+          this.getUIContext().getPromptAction().showToast({ message: '新建待办待实现' });
+        }
       })
     }
     .width('100%')
