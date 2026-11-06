@@ -5,10 +5,9 @@ const LARGE_TITLE_FONT_SIZE: number = 44;
 const HEADER_SLOT_HEIGHT: number = 56;
 const GROUP_BAR_HEIGHT: number = 44;
 const COLLAPSE_DISTANCE: number = HEADER_SLOT_HEIGHT;
-const SEARCH_PULL_THRESHOLD: number = 30;
-const SEARCH_PULL_MAX: number = 60;
 const SEARCH_ROW_HEIGHT: number = 56;
-const SEARCH_ANIMATION_DURATION: number = 180;
+const SEARCH_SETTLE_DURATION: number = 180;
+const SEARCH_RELEASE_DELAY: number = 50;
 
 @Entry
 @Component
@@ -16,11 +15,9 @@ struct Index {
   @State currentTab: number = 0;
   @State selectedGroup: string = GROUP_ALL;
   @State searchProgress: number = 0;
-  @State searchExpanded: boolean = false;
-  @State pullDistance: number = 0;
   @State collapseProgress: number = 0;
 
-  private searchAnimating: boolean = false;
+  private searchReleaseTimer: number = -1;
   private touchingList: boolean = false;
 
   private scroller: Scroller = new Scroller();
@@ -56,34 +53,22 @@ struct Index {
     return column === 0 ? left : right;
   }
 
-  private hideSearch(): void {
-    this.searchExpanded = false;
-    this.pullDistance = 0;
-    this.searchAnimating = true;
-    this.getUIContext().animateTo({
-      duration: SEARCH_ANIMATION_DURATION,
-      curve: Curve.EaseOut,
-      onFinish: () => {
-        this.searchAnimating = false;
-      }
-    }, () => {
-      this.searchProgress = 0;
-    });
+  private cancelSearchRelease(): void {
+    if (this.searchReleaseTimer !== -1) {
+      clearTimeout(this.searchReleaseTimer);
+      this.searchReleaseTimer = -1;
+    }
   }
 
-  private expandSearch(): void {
-    this.searchExpanded = true;
-    this.pullDistance = 0;
-    this.collapseProgress = 0;
-    this.searchAnimating = true;
-    this.getUIContext().animateTo({
-      duration: SEARCH_ANIMATION_DURATION,
-      curve: Curve.EaseOut,
-      onFinish: () => {
-        this.searchAnimating = false;
-      }
-    }, () => {
-      this.searchProgress = 1;
+  private settleSearch(): void {
+    this.cancelSearchRelease();
+    if (this.touchingList || this.searchProgress === 0 || this.searchProgress === 1) {
+      return;
+    }
+    const target: number = this.searchProgress >= 0.5 ? 1 : 0;
+    const duration: number = Math.round(SEARCH_SETTLE_DURATION * Math.abs(target - this.searchProgress));
+    this.getUIContext().animateTo({ duration: duration, curve: Curve.EaseOut }, () => {
+      this.searchProgress = target;
     });
   }
 
@@ -91,35 +76,32 @@ struct Index {
     if (this.currentTab === tab) {
       return;
     }
-    this.hideSearch();
+    this.cancelSearchRelease();
+    this.touchingList = false;
+    this.searchProgress = 0;
     this.collapseProgress = 0;
     this.currentTab = tab;
   }
 
-  private onListScroll(deltaY: number, scrollState: ScrollState): void {
-    if (this.currentTab !== 0) {
-      return;
+  private consumeSearchScroll(delta: number, source: ScrollSource): number {
+    const dragging: boolean = this.touchingList && source === ScrollSource.DRAG;
+    if (delta > 0 && this.searchProgress > 0 && (dragging || source === ScrollSource.FLING)) {
+      this.cancelSearchRelease();
+      const remaining: number = this.searchProgress * SEARCH_ROW_HEIGHT;
+      const consumed: number = Math.min(delta, remaining);
+      this.searchProgress = (remaining - consumed) / SEARCH_ROW_HEIGHT;
+      return delta - consumed;
     }
-    const offset: number = this.scroller.currentOffset().yOffset;
-    const atTop: boolean = offset <= 0.5;
 
-    if (this.searchExpanded || this.searchAnimating) {
-      return;
-    }
-
-    this.collapseProgress = Math.min(1, Math.max(0, offset / COLLAPSE_DISTANCE));
-
-    if (atTop && deltaY < 0 && this.touchingList && scrollState === ScrollState.Scroll) {
-      this.pullDistance = Math.min(SEARCH_PULL_MAX, this.pullDistance - deltaY);
-      if (this.pullDistance >= SEARCH_PULL_THRESHOLD) {
-        this.expandSearch();
+    if (delta < 0 && dragging) {
+      const offset: number = Math.max(0, this.scroller.currentOffset().yOffset);
+      if (-delta > offset) {
+        const pull: number = -delta - offset;
+        this.searchProgress = Math.min(1, this.searchProgress + pull / SEARCH_ROW_HEIGHT);
+        return -offset;
       }
-      return;
     }
-
-    if (deltaY > 0 || scrollState === ScrollState.Idle) {
-      this.pullDistance = 0;
-    }
+    return delta;
   }
 
   @Builder
@@ -345,30 +327,25 @@ struct Index {
     .edgeEffect(EdgeEffect.Spring)
     .onTouch((event: TouchEvent) => {
       if (event.type === TouchType.Down) {
+        this.cancelSearchRelease();
         this.touchingList = true;
-        this.pullDistance = 0;
       } else if (event.type === TouchType.Up || event.type === TouchType.Cancel) {
         this.touchingList = false;
-        this.pullDistance = 0;
+        this.cancelSearchRelease();
+        this.searchReleaseTimer = setTimeout(() => {
+          this.settleSearch();
+        }, SEARCH_RELEASE_DELAY);
       }
     })
-    .onWillScroll((xOffset: number, yOffset: number, scrollState: ScrollState) => {
-      if (this.searchAnimating) {
-        return { xOffset: xOffset, yOffset: 0 };
-      }
-      if (this.searchExpanded && yOffset > 0 && this.touchingList && scrollState === ScrollState.Scroll) {
-        this.hideSearch();
-        return { xOffset: xOffset, yOffset: 0 };
-      }
-      return { xOffset: xOffset, yOffset: yOffset };
+    .onWillScroll((xOffset: number, yOffset: number, scrollState: ScrollState, source: ScrollSource) => {
+      return { xOffset: xOffset, yOffset: this.consumeSearchScroll(yOffset, source) };
     })
-    .onDidScroll((xOffset: number, yOffset: number, scrollState: ScrollState) => {
-      this.onListScroll(yOffset, scrollState);
+    .onDidScroll(() => {
+      const offset: number = this.scroller.currentOffset().yOffset;
+      this.collapseProgress = Math.min(1, Math.max(0, offset / COLLAPSE_DISTANCE));
     })
-    .onReachStart(() => {
-      if (!this.searchExpanded) {
-        this.collapseProgress = 0;
-      }
+    .onScrollStop(() => {
+      this.settleSearch();
     })
   }
 
