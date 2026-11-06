@@ -324,6 +324,7 @@ struct Index {
     .width('100%')
     .height('100%')
     .scrollBar(BarState.Off)
+    .align(Alignment.Top)
     .edgeEffect(EdgeEffect.Spring)
     .onTouch((event: TouchEvent) => {
       if (event.type === TouchType.Down) {
