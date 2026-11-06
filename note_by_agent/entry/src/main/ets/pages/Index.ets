@@ -56,10 +56,6 @@ struct Index {
     return column === 0 ? left : right;
   }
 
-  private currentTitle(): string {
-    return this.currentTab === 0 ? '笔记' : '待办';
-  }
-
   private hideSearch(): void {
     this.searchExpanded = false;
     this.pullDistance = 0;
@@ -127,24 +123,27 @@ struct Index {
   }
 
   @Builder
+  TabSwitcher(large: boolean) {
+    Row({ space: 20 }) {
+      ForEach(['笔记', '待办'], (title: string, index: number) => {
+        Text(title)
+          .fontSize(large ? (this.currentTab === index ? LARGE_TITLE_FONT_SIZE : 34) :
+            (this.currentTab === index ? 22 : 17))
+          .fontWeight(this.currentTab === index ? FontWeight.Bold : FontWeight.Normal)
+          .fontColor(this.currentTab === index ? $r('app.color.text_primary') : $r('app.color.text_secondary'))
+          .maxLines(1)
+          .onClick(() => {
+            this.switchTab(index);
+          })
+      }, (title: string) => title)
+    }
+    .alignItems(VerticalAlign.Center)
+  }
+
+  @Builder
   TopBar() {
     Stack({ alignContent: Alignment.Center }) {
       Row() {
-        Text('笔记')
-          .fontSize(this.currentTab === 0 ? 22 : 17)
-          .fontWeight(this.currentTab === 0 ? FontWeight.Bold : FontWeight.Normal)
-          .fontColor(this.currentTab === 0 ? $r('app.color.text_primary') : $r('app.color.text_secondary'))
-          .margin({ right: 20 })
-          .onClick(() => {
-            this.switchTab(0);
-          })
-        Text('待办')
-          .fontSize(this.currentTab === 1 ? 22 : 17)
-          .fontWeight(this.currentTab === 1 ? FontWeight.Bold : FontWeight.Normal)
-          .fontColor(this.currentTab === 1 ? $r('app.color.text_primary') : $r('app.color.text_secondary'))
-          .onClick(() => {
-            this.switchTab(1);
-          })
         Blank()
         Image($r('app.media.ic_settings'))
           .width(22)
@@ -154,15 +153,15 @@ struct Index {
           })
       }
       .width('100%')
+      .height(46)
       .alignItems(VerticalAlign.Center)
       .padding({ left: 16, right: 16, top: 10, bottom: 6 })
 
-      Text(this.currentTitle())
-        .fontSize(17)
-        .fontWeight(FontWeight.Medium)
-        .fontColor($r('app.color.text_primary'))
-        .opacity(this.collapseProgress)
-        .hitTestBehavior(HitTestMode.None)
+      Row() {
+        this.TabSwitcher(false)
+      }
+      .opacity(this.collapseProgress)
+      .visibility(this.collapseProgress > 0 ? Visibility.Visible : Visibility.Hidden)
     }
     .width('100%')
   }
@@ -195,12 +194,11 @@ struct Index {
   @Builder
   HeaderSlot() {
     Stack({ alignContent: Alignment.Start }) {
-      Text(this.currentTitle())
-        .fontSize(LARGE_TITLE_FONT_SIZE)
-        .fontWeight(FontWeight.Bold)
-        .fontColor($r('app.color.text_primary'))
-        .maxLines(1)
-        .opacity(1 - this.collapseProgress)
+      Row() {
+        this.TabSwitcher(true)
+      }
+      .opacity(1 - this.collapseProgress)
+      .visibility(this.collapseProgress < 1 ? Visibility.Visible : Visibility.Hidden)
     }
     .width('100%')
     .height(HEADER_SLOT_HEIGHT * (1 - this.collapseProgress))
