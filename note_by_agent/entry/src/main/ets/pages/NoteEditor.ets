@@ -4,6 +4,7 @@ import { findNote, NoteEditorParams, saveNote } from '../model/NoteStore';
 const EDITOR_PADDING: number = 16;
 const TITLE_FONT_SIZE: number = 26;
 const BODY_FONT_SIZE: number = 17;
+const BODY_INPUT_VERTICAL_PADDING: number = 6;
 const META_FONT_SIZE: number = 13;
 const NAV_ICON_SIZE: number = 24;
 const TITLE_INPUT_ID: string = 'note-editor-title';
@@ -15,7 +16,7 @@ struct NoteEditor {
   @State private title: string = '';
   @State private content: string = '';
   @State private editing: boolean = false;
-  private focusTarget: string = TITLE_INPUT_ID;
+  private focusTarget: string = BODY_INPUT_ID;
   private params: NoteEditorParams = { id: '', group: '' };
   private original?: Note;
 
@@ -114,38 +115,36 @@ struct NoteEditor {
         TextArea({ text: this.content, placeholder: '正文' })
           .id(BODY_INPUT_ID)
           .backgroundColor(Color.Transparent)
+          .borderRadius(0)
           .fontColor($r('app.color.text_primary'))
           .fontSize(BODY_FONT_SIZE)
-          .padding(0)
+          .padding({ top: BODY_INPUT_VERTICAL_PADDING, bottom: BODY_INPUT_VERTICAL_PADDING, left: 0, right: 0 })
           .layoutWeight(1)
           .onAppear(() => this.focusInput(BODY_INPUT_ID))
           .onChange((value: string) => {
             this.content = value;
           })
       } else {
-        Scroll() {
-          Column({ space: EDITOR_PADDING }) {
-            Text(this.title.length > 0 ? this.title : '标题')
-              .fontColor(this.title.length > 0 ? $r('app.color.text_primary') : $r('app.color.text_secondary'))
-              .fontSize(TITLE_FONT_SIZE)
-              .fontWeight(FontWeight.Bold)
-              .width('100%')
-              .onClick(() => this.startEditing(TITLE_INPUT_ID))
-
-            this.Metadata()
-
-            Text(this.content.length > 0 ? this.content : '正文')
-              .fontColor(this.content.length > 0 ? $r('app.color.text_primary') : $r('app.color.text_secondary'))
-              .fontSize(BODY_FONT_SIZE)
-              .width('100%')
-              .onClick(() => this.startEditing(BODY_INPUT_ID))
-          }
-          .alignItems(HorizontalAlign.Start)
+        Text(this.title.length > 0 ? this.title : '标题')
+          .fontColor(this.title.length > 0 ? $r('app.color.text_primary') : $r('app.color.text_secondary'))
+          .fontSize(TITLE_FONT_SIZE)
+          .fontWeight(FontWeight.Bold)
           .width('100%')
+          .onClick(() => this.startEditing(TITLE_INPUT_ID))
+
+        this.Metadata()
+
+        Scroll() {
+          Text(this.content.length > 0 ? this.content : '正文')
+            .fontColor(this.content.length > 0 ? $r('app.color.text_primary') : $r('app.color.text_secondary'))
+            .fontSize(BODY_FONT_SIZE)
+            .padding({ top: BODY_INPUT_VERTICAL_PADDING })
+            .width('100%')
         }
         .align(Alignment.TopStart)
         .layoutWeight(1)
         .width('100%')
+        .onClick(() => this.startEditing(BODY_INPUT_ID))
       }
     }
     .alignItems(HorizontalAlign.Start)
