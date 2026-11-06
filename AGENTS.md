@@ -69,8 +69,8 @@ $env:PATH = "E:\Softs\Huawei\DevEco Studio\jbr\bin;" + $env:PATH
 note_by_agent/entry/src/main/ets/
   entryability/        Ability 入口
   pages/               页面（@Entry）
-  components/          可复用组件（后续新建）
-  model/               数据模型与假数据（后续新建）
+  components/          可复用组件
+  model/               数据模型与假数据
   viewmodel/           状态与业务逻辑（后续新建）
   common/              常量、工具（后续新建）
 ```
@@ -97,13 +97,11 @@ note_by_agent/entry/src/main/ets/
 
 ## 阶段目标
 
-- 先做 `home` 页假数据界面（无底部导航，顶部导航栏）。
-- 其余页面（dir / edit / todo）后续迭代。
-- 持久化在界面稳定后实现。
+当前阶段、下一步和待修问题见 [项目进度](docs/progress.md)。
 
 ## 文档索引
 
 - `docs/design.md`：设计规范（色值、字号、间距）
 - `docs/pages.md`：页面规格
 - `docs/data-model.md`：数据模型
-- `docs/progress.md`：进度、决策、待定项
+- `docs/progress.md`：当前进度、下一步、待修问题与历史记录
