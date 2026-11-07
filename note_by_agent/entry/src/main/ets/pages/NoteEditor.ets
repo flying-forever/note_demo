@@ -1,5 +1,6 @@
 import { GROUP_ALL, GROUP_UNFILED, NOTE_GROUPS, Note } from '../model/Note';
 import { deleteNote, findNote, moveNote, NoteEditorParams, saveNote } from '../model/NoteStore';
+import { NoteDraft, NoteHistory } from '../model/NoteHistory';
 
 const EDITOR_PADDING: number = 16;
 const TITLE_FONT_SIZE: number = 26;
@@ -28,6 +29,10 @@ struct NoteEditor {
   @State private title: string = '';
   @State private content: string = '';
   @State private editing: boolean = false;
+  @State private canUndo: boolean = false;
+  @State private canRedo: boolean = false;
+  private history: NoteHistory = new NoteHistory('', '');
+  private pastePending: boolean = false;
   @State private menuVisible: boolean = false;
   @State private folderPickerVisible: boolean = false;
   @State private folderProgress: number = 0;
@@ -47,6 +52,7 @@ struct NoteEditor {
     this.original = findNote(this.params.id);
     this.title = this.original?.title ?? '';
     this.content = this.original?.content ?? '';
+    this.history = new NoteHistory(this.title, this.content);
     this.editing = this.original === undefined;
     this.selectedGroup = this.original?.group ?? this.params.group;
   }
@@ -56,6 +62,7 @@ struct NoteEditor {
   }
 
   private inputEditingChanged(active: boolean, id: string): void {
+    this.history.closeGroup();
     if (active) {
       clearTimeout(this.keyboardTimer);
       this.activeInput = id;
@@ -67,6 +74,54 @@ struct NoteEditor {
         }
       }, 0);
     }
+  }
+
+  private updateHistoryButtons(): void {
+    this.canUndo = this.history.canUndo();
+    this.canRedo = this.history.canRedo();
+  }
+
+  private changeText(value: string, field: string, preview?: PreviewText): void {
+    if (field === TITLE_INPUT_ID) {
+      this.title = value;
+    } else {
+      this.content = value;
+    }
+    if (preview && preview.value.length > 0) {
+      return;
+    }
+    this.history.record(this.title, this.content, field);
+    if (this.pastePending) {
+      this.history.closeGroup();
+      this.pastePending = false;
+    }
+    this.updateHistoryButtons();
+  }
+
+  private preparePaste(): void {
+    this.history.closeGroup();
+    this.pastePending = true;
+  }
+
+  private restoreHistory(redo: boolean): void {
+    const draft: NoteDraft = redo ? this.history.redo() : this.history.undo();
+    this.title = draft.title;
+    this.content = draft.content;
+    this.updateHistoryButtons();
+  }
+
+  @Builder
+  HistoryButton(resource: Resource, label: string, redo: boolean) {
+    Button({ type: ButtonType.Normal }) {
+      Image(resource).width(NAV_ICON_SIZE).height(NAV_ICON_SIZE)
+    }
+    .width(NAV_BUTTON_SIZE)
+    .height(NAV_BUTTON_SIZE)
+    .backgroundColor(Color.Transparent)
+    .accessibilityText(label)
+    .enabled(redo ? this.canRedo : this.canUndo)
+    .opacity((redo ? this.canRedo : this.canUndo) ? 1 : 0.3)
+    .onClick(() => this.restoreHistory(redo))
   }
   private startEditing(target: string): void {
     if (Date.now() - this.gestureFinishedAt < 200) {
@@ -169,12 +224,15 @@ struct NoteEditor {
         })
       Blank()
       if (this.editing) {
+        this.HistoryButton($r('app.media.ic_undo'), '撤销', false)
+        this.HistoryButton($r('app.media.ic_redo'), '重做', true)
         Button('✓', { type: ButtonType.Normal })
           .fontSize(NAV_ICON_SIZE)
           .accessibilityText('结束编辑')
           .backgroundColor(Color.Transparent)
           .fontColor($r('app.color.text_primary'))
           .onClick(() => {
+            this.history.closeGroup();
             this.getUIContext().getFocusController().clearFocus();
             this.editing = false;
           })
@@ -238,9 +296,8 @@ struct NoteEditor {
           .padding(0)
           .onAppear(() => this.focusInput(TITLE_INPUT_ID))
           .onEditChange((active: boolean) => this.inputEditingChanged(active, TITLE_INPUT_ID))
-          .onChange((value: string) => {
-            this.title = value;
-          })
+          .onPaste(() => this.preparePaste())
+          .onChange((value: string, preview?: PreviewText) => this.changeText(value, TITLE_INPUT_ID, preview))
 
         this.Metadata()
 
@@ -254,9 +311,8 @@ struct NoteEditor {
           .layoutWeight(1)
           .onAppear(() => this.focusInput(BODY_INPUT_ID))
           .onEditChange((active: boolean) => this.inputEditingChanged(active, BODY_INPUT_ID))
-          .onChange((value: string) => {
-            this.content = value;
-          })
+          .onPaste(() => this.preparePaste())
+          .onChange((value: string, preview?: PreviewText) => this.changeText(value, BODY_INPUT_ID, preview))
       } else {
         Text(this.title.length > 0 ? this.title : '标题')
           .fontColor(this.title.length > 0 ? $r('app.color.text_primary') : $r('app.color.text_secondary'))
