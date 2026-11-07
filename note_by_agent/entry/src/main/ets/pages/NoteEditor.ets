@@ -1,5 +1,5 @@
-import { Note } from '../model/Note';
-import { findNote, NoteEditorParams, saveNote } from '../model/NoteStore';
+import { GROUP_ALL, GROUP_UNFILED, NOTE_GROUPS, Note } from '../model/Note';
+import { deleteNote, findNote, moveNote, NoteEditorParams, saveNote } from '../model/NoteStore';
 
 const EDITOR_PADDING: number = 16;
 const TITLE_FONT_SIZE: number = 26;
@@ -9,6 +9,18 @@ const META_FONT_SIZE: number = 13;
 const NAV_ICON_SIZE: number = 24;
 const TITLE_INPUT_ID: string = 'note-editor-title';
 const BODY_INPUT_ID: string = 'note-editor-body';
+const MENU_WIDTH: number = 200;
+const MENU_ROW_HEIGHT: number = 56;
+const MENU_TOP: number = 16;
+const MENU_CORNER: number = 20;
+const MENU_ITEMS: string[] = ['设置提醒', '设为私密', '发送到桌面', '移动到', '删除'];
+const FOLDER_GESTURE_DISTANCE: number = 8;
+const FOLDER_HEIGHT: number = 40;
+const SETTLE_DURATION: number = 180;
+const NAV_BUTTON_SIZE: number = 44;
+const NAV_SPACING: number = 8;
+const UNFILED: string = GROUP_UNFILED;
+const FOLDER_OPTIONS: string[] = NOTE_GROUPS.filter((group: string) => group !== GROUP_ALL);
 
 @Entry
 @Component
@@ -16,6 +28,16 @@ struct NoteEditor {
   @State private title: string = '';
   @State private content: string = '';
   @State private editing: boolean = false;
+  @State private menuVisible: boolean = false;
+  @State private folderPickerVisible: boolean = false;
+  @State private folderProgress: number = 0;
+  private gestureStartProgress: number = 0;
+  private folderGestureAllowed: boolean = false;
+  private activeInput: string = '';
+  private keyboardTimer: number = -1;
+  @State private selectedGroup: string = '';
+  private bodyScroller: Scroller = new Scroller();
+  private gestureFinishedAt: number = 0;
   private focusTarget: string = BODY_INPUT_ID;
   private params: NoteEditorParams = { id: '', group: '' };
   private original?: Note;
@@ -26,9 +48,30 @@ struct NoteEditor {
     this.title = this.original?.title ?? '';
     this.content = this.original?.content ?? '';
     this.editing = this.original === undefined;
+    this.selectedGroup = this.original?.group ?? this.params.group;
   }
 
+  aboutToDisappear(): void {
+    clearTimeout(this.keyboardTimer);
+  }
+
+  private inputEditingChanged(active: boolean, id: string): void {
+    if (active) {
+      clearTimeout(this.keyboardTimer);
+      this.activeInput = id;
+    } else if (this.activeInput === id) {
+      this.activeInput = '';
+      this.keyboardTimer = setTimeout(() => {
+        if (this.activeInput === '') {
+          this.editing = false;
+        }
+      }, 0);
+    }
+  }
   private startEditing(target: string): void {
+    if (Date.now() - this.gestureFinishedAt < 200) {
+      return;
+    }
     this.focusTarget = target;
     this.editing = true;
   }
@@ -55,12 +98,65 @@ struct NoteEditor {
   }
 
   onBackPress(): boolean {
+    if (this.folderPickerVisible) {
+      this.folderPickerVisible = false;
+      return true;
+    }
+    if (this.menuVisible) {
+      this.menuVisible = false;
+      return true;
+    }
     return !this.saveBeforeLeaving();
+  }
+
+  private pendingFeature(name: string): void {
+    this.getUIContext().getPromptAction().showToast({ message: name + '待实现' });
+  }
+
+  private selectFolder(label: string): void {
+    const group: string = label === UNFILED ? '' : label;
+    this.selectedGroup = group;
+    this.params.group = group;
+    moveNote(this.params.id, group);
+    this.folderPickerVisible = false;
+    this.folderProgress = 1;
+  }
+
+  private async confirmDelete(): Promise<void> {
+    this.menuVisible = false;
+    try {
+      const result = await this.getUIContext().getPromptAction().showDialog({
+        title: '删除笔记',
+        message: '确定删除这条笔记吗？',
+        buttons: [
+          { text: '取消', color: $r('app.color.text_primary') },
+          { text: '删除', color: $r('app.color.accent') }
+        ]
+      });
+      if (result.index === 1) {
+        deleteNote(this.params.id);
+        this.getUIContext().getRouter().back();
+      }
+    } catch {
+      return;
+    }
+  }
+
+  @Builder
+  ToolbarIcon(resource: Resource, label: string) {
+    Button({ type: ButtonType.Normal }) {
+      Image(resource).width(NAV_ICON_SIZE).height(NAV_ICON_SIZE)
+    }
+    .accessibilityText(label)
+    .width(NAV_BUTTON_SIZE)
+    .height(NAV_BUTTON_SIZE)
+    .backgroundColor(Color.Transparent)
+    .onClick(() => this.pendingFeature(label))
   }
 
   @Builder
   NavigationBar() {
-    Row() {
+    Row({ space: NAV_SPACING }) {
       Button('←', { type: ButtonType.Normal })
         .fontSize(NAV_ICON_SIZE)
         .accessibilityText('返回')
@@ -82,6 +178,19 @@ struct NoteEditor {
             this.getUIContext().getFocusController().clearFocus();
             this.editing = false;
           })
+      } else {
+        this.ToolbarIcon($r('app.media.ic_share'), '分享')
+        this.ToolbarIcon($r('app.media.ic_skin'), '皮肤')
+        Button({ type: ButtonType.Normal }) {
+          Image($r('app.media.ic_more')).width(NAV_ICON_SIZE).height(NAV_ICON_SIZE)
+        }
+        .accessibilityText('更多')
+        .width(NAV_BUTTON_SIZE)
+        .height(NAV_BUTTON_SIZE)
+        .backgroundColor(Color.Transparent)
+        .onClick(() => {
+          this.menuVisible = true;
+        })
       }
     }
     .width('100%')
@@ -94,9 +203,31 @@ struct NoteEditor {
       .fontColor($r('app.color.text_secondary'))
   }
 
-  build() {
+  @Builder
+  EditorContent() {
     Column({ space: EDITOR_PADDING }) {
       this.NavigationBar()
+      if (!this.editing) {
+        Column() {
+        Button({ type: ButtonType.Normal }) {
+          Row({ space: BODY_INPUT_VERTICAL_PADDING }) {
+            Image($r('app.media.ic_folder')).width(NAV_ICON_SIZE).height(NAV_ICON_SIZE)
+            Text(this.selectedGroup || UNFILED).fontSize(BODY_FONT_SIZE)
+          }
+        }
+        .backgroundColor($r('app.color.page_bg'))
+        .fontColor($r('app.color.text_primary'))
+        .borderRadius(MENU_CORNER)
+        .height(FOLDER_HEIGHT)
+        .opacity(this.folderProgress)
+        .enabled(this.folderProgress === 1)
+        .onClick(() => {
+          this.folderPickerVisible = true;
+        })
+        }
+        .height(FOLDER_HEIGHT * this.folderProgress)
+        .clip(true)
+      }
       if (this.editing) {
         TextInput({ text: this.title, placeholder: '标题' })
           .id(TITLE_INPUT_ID)
@@ -106,6 +237,7 @@ struct NoteEditor {
           .fontWeight(FontWeight.Bold)
           .padding(0)
           .onAppear(() => this.focusInput(TITLE_INPUT_ID))
+          .onEditChange((active: boolean) => this.inputEditingChanged(active, TITLE_INPUT_ID))
           .onChange((value: string) => {
             this.title = value;
           })
@@ -121,6 +253,7 @@ struct NoteEditor {
           .padding({ top: BODY_INPUT_VERTICAL_PADDING, bottom: BODY_INPUT_VERTICAL_PADDING, left: 0, right: 0 })
           .layoutWeight(1)
           .onAppear(() => this.focusInput(BODY_INPUT_ID))
+          .onEditChange((active: boolean) => this.inputEditingChanged(active, BODY_INPUT_ID))
           .onChange((value: string) => {
             this.content = value;
           })
@@ -134,7 +267,7 @@ struct NoteEditor {
 
         this.Metadata()
 
-        Scroll() {
+        Scroll(this.bodyScroller) {
           Text(this.content.length > 0 ? this.content : '正文')
             .fontColor(this.content.length > 0 ? $r('app.color.text_primary') : $r('app.color.text_secondary'))
             .fontSize(BODY_FONT_SIZE)
@@ -152,5 +285,101 @@ struct NoteEditor {
     .width('100%')
     .height('100%')
     .backgroundColor($r('app.color.card_bg'))
+    .parallelGesture(
+      PanGesture({ direction: PanDirection.Vertical, distance: FOLDER_GESTURE_DISTANCE })
+        .onActionStart(() => {
+          this.gestureStartProgress = this.folderProgress;
+          this.folderGestureAllowed = !this.editing && !this.menuVisible && !this.folderPickerVisible;
+        })
+        .onActionUpdate((event: GestureEvent) => {
+          if (this.folderGestureAllowed) {
+            if (event.offsetY < 0 || this.bodyScroller.currentOffset().yOffset <= 0) {
+              this.folderProgress = Math.max(0, Math.min(1, this.gestureStartProgress + event.offsetY / FOLDER_HEIGHT));
+            }
+            this.gestureFinishedAt = Date.now();
+          }
+        })
+        .onActionEnd(() => {
+          this.settleFolder();
+        })
+        .onActionCancel(() => {
+          this.settleFolder();
+        })
+    )
+  }
+
+  build() {
+    Stack({ alignContent: Alignment.TopEnd }) {
+      this.EditorContent()
+      if (this.menuVisible || this.folderPickerVisible) {
+        Column()
+          .width('100%')
+          .height('100%')
+          .backgroundColor('#66000000')
+          .onClick(() => {
+            this.menuVisible = false;
+            this.folderPickerVisible = false;
+          })
+      }
+      if (this.menuVisible) {
+        Column() {
+          ForEach(MENU_ITEMS, (label: string) => {
+            Button(label, { type: ButtonType.Normal })
+              .width('100%')
+              .height(MENU_ROW_HEIGHT)
+              .fontSize(BODY_FONT_SIZE)
+              .fontWeight(FontWeight.Medium)
+              .fontColor($r('app.color.text_primary'))
+              .backgroundColor(Color.Transparent)
+              .onClick(() => {
+                if (label === '删除') {
+                  this.confirmDelete();
+                } else if (label === '移动到') {
+                  this.menuVisible = false;
+                  this.folderPickerVisible = true;
+                } else {
+                  this.menuVisible = false;
+                  this.pendingFeature(label);
+                }
+              })
+          })
+        }
+        .width(MENU_WIDTH)
+        .padding(BODY_INPUT_VERTICAL_PADDING)
+        .borderRadius(MENU_CORNER)
+        .backgroundColor($r('app.color.card_bg'))
+        .margin({ top: MENU_TOP, right: EDITOR_PADDING })
+      }
+      if (this.folderPickerVisible) {
+        Column() {
+          Text('移动到').fontSize(TITLE_FONT_SIZE).padding(EDITOR_PADDING)
+          ForEach(FOLDER_OPTIONS, (label: string) => {
+            Button(label + ((this.selectedGroup || UNFILED) === label ? '  ✓' : ''), { type: ButtonType.Normal })
+              .width('100%')
+              .height(MENU_ROW_HEIGHT)
+              .backgroundColor(Color.Transparent)
+              .fontColor($r('app.color.text_primary'))
+              .onClick(() => this.selectFolder(label))
+          })
+        }
+        .width(MENU_WIDTH)
+        .padding(EDITOR_PADDING)
+        .backgroundColor($r('app.color.card_bg'))
+        .borderRadius(MENU_CORNER)
+        .margin({ top: MENU_TOP, right: EDITOR_PADDING })
+      }
+    }
+    .width('100%')
+    .height('100%')
+  }
+
+  private settleFolder(): void {
+    if (this.folderGestureAllowed) {
+      this.gestureFinishedAt = Date.now();
+      this.getUIContext().animateTo({ duration: SETTLE_DURATION, curve: Curve.EaseOut }, () => {
+        this.folderProgress = this.folderProgress >= 0.5 ? 1 : 0;
+      });
+    }
+    this.folderGestureAllowed = false;
   }
 }

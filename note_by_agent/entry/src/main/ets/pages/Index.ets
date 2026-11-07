@@ -1,5 +1,5 @@
 import { NoteCard } from '../components/NoteCard';
-import { GROUP_ALL, NOTE_GROUPS, Note, noteCardTitle } from '../model/Note';
+import { GROUP_ALL, GROUP_UNFILED, NOTE_GROUPS, Note, noteCardTitle } from '../model/Note';
 import { listNotes, NoteEditorParams } from '../model/NoteStore';
 
 const LARGE_TITLE_FONT_SIZE: number = 44;
@@ -29,7 +29,7 @@ struct Index {
   }
 
   private openEditor(id: string): void {
-    const params: NoteEditorParams = { id: id, group: this.selectedGroup === GROUP_ALL ? '' : this.selectedGroup };
+    const params: NoteEditorParams = { id: id, group: this.selectedGroup === GROUP_ALL || this.selectedGroup === GROUP_UNFILED ? '' : this.selectedGroup };
     this.getUIContext().getRouter().pushUrl({ url: 'pages/NoteEditor', params: params });
   }
 
@@ -37,7 +37,7 @@ struct Index {
     if (this.selectedGroup === GROUP_ALL) {
       return this.allNotes;
     }
-    return this.allNotes.filter((item: Note) => item.group === this.selectedGroup);
+    return this.allNotes.filter((item: Note) => item.group === (this.selectedGroup === GROUP_UNFILED ? '' : this.selectedGroup));
   }
 
   private estimateHeight(note: Note): number {

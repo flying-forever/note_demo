@@ -13,7 +13,8 @@ export function noteCardTitle(note: Note): string {
 
 export const GROUP_ALL: string = '全部';
 
-export const NOTE_GROUPS: string[] = ['全部', '旅途', '美食', '攻略', '随记'];
+export const GROUP_UNFILED: string = '未分类';
+export const NOTE_GROUPS: string[] = ['全部', '旅途', '美食', '攻略', '随记', GROUP_UNFILED];
 
 export const FAKE_NOTES: Note[] = [
   {
@@ -155,5 +156,19 @@ export const FAKE_NOTES: Note[] = [
     content: '把民宿的窗户打开，又听了会儿街上的声音。行李比来时多了一袋伴手礼。',
     timeLabel: '10月20日 06:50',
     group: '旅途'
+  },
+  {
+    id: 'n21',
+    title: '临时记下的想法',
+    content: '周末整理照片，挑几张喜欢的打印出来。还没想好放进哪个文件夹，先记在这里。',
+    timeLabel: '10月19日 20:15',
+    group: ''
+  },
+  {
+    id: 'n22',
+    title: '',
+    content: '下班路上记得取快递，顺便买一盒牛奶。',
+    timeLabel: '10月19日 18:30',
+    group: ''
   }
 ];

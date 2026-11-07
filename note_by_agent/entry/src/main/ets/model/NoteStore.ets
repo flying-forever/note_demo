@@ -16,6 +16,19 @@ export function findNote(id: string): Note | undefined {
   return notes.find((note: Note) => note.id === id);
 }
 
+export function deleteNote(id: string): void {
+  notes = notes.filter((note: Note) => note.id !== id);
+}
+
+export function moveNote(id: string, group: string): void {
+  notes = notes.map((note: Note) => {
+    if (note.id !== id) {
+      return note;
+    }
+    return { id: note.id, title: note.title, content: note.content, timeLabel: note.timeLabel, group: group };
+  });
+}
+
 export function saveNote(params: NoteEditorParams, title: string, content: string): void {
   const original: Note | undefined = findNote(params.id);
   const now: Date = new Date();
