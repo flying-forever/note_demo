@@ -1,5 +1,6 @@
 import { GROUP_ALL, GROUP_UNFILED, NOTE_GROUPS, Note } from '../model/Note';
-import { deleteNote, findNote, moveNote, NoteEditorParams, saveNote } from '../model/NoteStore';
+import { changeNoteSkin, deleteNote, findNote, moveNote, NoteEditorParams, saveNote } from '../model/NoteStore';
+import { findSkin, NOTE_SKINS, NoteSkin } from '../model/NoteSkin';
 import { NoteDraft, NoteHistory } from '../model/NoteHistory';
 
 const EDITOR_PADDING: number = 16;
@@ -20,6 +21,9 @@ const FOLDER_HEIGHT: number = 40;
 const SETTLE_DURATION: number = 180;
 const NAV_BUTTON_SIZE: number = 44;
 const NAV_SPACING: number = 8;
+const SKIN_CARD_WIDTH: number = 96;
+const SKIN_CARD_HEIGHT: number = 130;
+const SKIN_SELECTED_COLOR: string = '#FFC107';
 const UNFILED: string = GROUP_UNFILED;
 const FOLDER_OPTIONS: string[] = NOTE_GROUPS.filter((group: string) => group !== GROUP_ALL);
 
@@ -29,6 +33,8 @@ struct NoteEditor {
   @State private title: string = '';
   @State private content: string = '';
   @State private editing: boolean = false;
+  @State private skinId: string = 'white';
+  @State private skinPickerVisible: boolean = false;
   @State private canUndo: boolean = false;
   @State private canRedo: boolean = false;
   private history: NoteHistory = new NoteHistory('', '');
@@ -55,6 +61,7 @@ struct NoteEditor {
     this.history = new NoteHistory(this.title, this.content);
     this.editing = this.original === undefined;
     this.selectedGroup = this.original?.group ?? this.params.group;
+    this.skinId = this.original?.skinId ?? 'white';
   }
 
   aboutToDisappear(): void {
@@ -113,7 +120,7 @@ struct NoteEditor {
   @Builder
   HistoryButton(resource: Resource, label: string, redo: boolean) {
     Button({ type: ButtonType.Normal }) {
-      Image(resource).width(NAV_ICON_SIZE).height(NAV_ICON_SIZE)
+      Image(resource).width(NAV_ICON_SIZE).height(NAV_ICON_SIZE).colorFilter(this.skinIconFilter())
     }
     .width(NAV_BUTTON_SIZE)
     .height(NAV_BUTTON_SIZE)
@@ -148,11 +155,15 @@ struct NoteEditor {
       }
       return true;
     }
-    saveNote(this.params, this.title, this.content);
+    saveNote(this.params, this.title, this.content, this.skinId);
     return true;
   }
 
   onBackPress(): boolean {
+    if (this.skinPickerVisible) {
+      this.skinPickerVisible = false;
+      return true;
+    }
     if (this.folderPickerVisible) {
       this.folderPickerVisible = false;
       return true;
@@ -166,6 +177,23 @@ struct NoteEditor {
 
   private pendingFeature(name: string): void {
     this.getUIContext().getPromptAction().showToast({ message: name + '待实现' });
+  }
+
+  private skin(): NoteSkin {
+    return findSkin(this.skinId);
+  }
+
+  private skinIconFilter(): number[] {
+    const color: string = this.skin().text;
+    const red: number = parseInt(color.substring(1, 3), 16) / 255;
+    const green: number = parseInt(color.substring(3, 5), 16) / 255;
+    const blue: number = parseInt(color.substring(5, 7), 16) / 255;
+    return [0, 0, 0, 0, red, 0, 0, 0, 0, green, 0, 0, 0, 0, blue, 0, 0, 0, 1, 0];
+  }
+
+  private selectSkin(id: string): void {
+    this.skinId = id;
+    changeNoteSkin(this.params.id, id);
   }
 
   private selectFolder(label: string): void {
@@ -200,13 +228,19 @@ struct NoteEditor {
   @Builder
   ToolbarIcon(resource: Resource, label: string) {
     Button({ type: ButtonType.Normal }) {
-      Image(resource).width(NAV_ICON_SIZE).height(NAV_ICON_SIZE)
+      Image(resource).width(NAV_ICON_SIZE).height(NAV_ICON_SIZE).colorFilter(this.skinIconFilter())
     }
     .accessibilityText(label)
     .width(NAV_BUTTON_SIZE)
     .height(NAV_BUTTON_SIZE)
     .backgroundColor(Color.Transparent)
-    .onClick(() => this.pendingFeature(label))
+    .onClick(() => {
+      if (label === '皮肤') {
+        this.skinPickerVisible = !this.skinPickerVisible;
+      } else {
+        this.pendingFeature(label);
+      }
+    })
   }
 
   @Builder
@@ -216,7 +250,7 @@ struct NoteEditor {
         .fontSize(NAV_ICON_SIZE)
         .accessibilityText('返回')
         .backgroundColor(Color.Transparent)
-        .fontColor($r('app.color.text_primary'))
+        .fontColor(this.skin().text)
         .onClick(() => {
           if (this.saveBeforeLeaving()) {
             this.getUIContext().getRouter().back();
@@ -230,7 +264,7 @@ struct NoteEditor {
           .fontSize(NAV_ICON_SIZE)
           .accessibilityText('结束编辑')
           .backgroundColor(Color.Transparent)
-          .fontColor($r('app.color.text_primary'))
+          .fontColor(this.skin().text)
           .onClick(() => {
             this.history.closeGroup();
             this.getUIContext().getFocusController().clearFocus();
@@ -240,7 +274,7 @@ struct NoteEditor {
         this.ToolbarIcon($r('app.media.ic_share'), '分享')
         this.ToolbarIcon($r('app.media.ic_skin'), '皮肤')
         Button({ type: ButtonType.Normal }) {
-          Image($r('app.media.ic_more')).width(NAV_ICON_SIZE).height(NAV_ICON_SIZE)
+          Image($r('app.media.ic_more')).width(NAV_ICON_SIZE).height(NAV_ICON_SIZE).colorFilter(this.skinIconFilter())
         }
         .accessibilityText('更多')
         .width(NAV_BUTTON_SIZE)
@@ -258,7 +292,7 @@ struct NoteEditor {
   Metadata() {
     Text(`${this.original ? this.original.timeLabel + '  |  ' : ''}${Array.from(this.content.replace(/\s/g, '')).length}字`)
       .fontSize(META_FONT_SIZE)
-      .fontColor($r('app.color.text_secondary'))
+      .fontColor(this.skin().secondary)
   }
 
   @Builder
@@ -269,12 +303,12 @@ struct NoteEditor {
         Column() {
         Button({ type: ButtonType.Normal }) {
           Row({ space: BODY_INPUT_VERTICAL_PADDING }) {
-            Image($r('app.media.ic_folder')).width(NAV_ICON_SIZE).height(NAV_ICON_SIZE)
+            Image($r('app.media.ic_folder')).width(NAV_ICON_SIZE).height(NAV_ICON_SIZE).colorFilter(this.skinIconFilter())
             Text(this.selectedGroup || UNFILED).fontSize(BODY_FONT_SIZE)
           }
         }
-        .backgroundColor($r('app.color.page_bg'))
-        .fontColor($r('app.color.text_primary'))
+        .backgroundColor(this.skin().panel)
+        .fontColor(this.skin().text)
         .borderRadius(MENU_CORNER)
         .height(FOLDER_HEIGHT)
         .opacity(this.folderProgress)
@@ -289,8 +323,9 @@ struct NoteEditor {
       if (this.editing) {
         TextInput({ text: this.title, placeholder: '标题' })
           .id(TITLE_INPUT_ID)
+          .placeholderColor(this.skin().secondary)
           .backgroundColor(Color.Transparent)
-          .fontColor($r('app.color.text_primary'))
+          .fontColor(this.skin().text)
           .fontSize(TITLE_FONT_SIZE)
           .fontWeight(FontWeight.Bold)
           .padding(0)
@@ -303,9 +338,10 @@ struct NoteEditor {
 
         TextArea({ text: this.content, placeholder: '正文' })
           .id(BODY_INPUT_ID)
+          .placeholderColor(this.skin().secondary)
           .backgroundColor(Color.Transparent)
           .borderRadius(0)
-          .fontColor($r('app.color.text_primary'))
+          .fontColor(this.skin().text)
           .fontSize(BODY_FONT_SIZE)
           .padding({ top: BODY_INPUT_VERTICAL_PADDING, bottom: BODY_INPUT_VERTICAL_PADDING, left: 0, right: 0 })
           .layoutWeight(1)
@@ -315,7 +351,7 @@ struct NoteEditor {
           .onChange((value: string, preview?: PreviewText) => this.changeText(value, BODY_INPUT_ID, preview))
       } else {
         Text(this.title.length > 0 ? this.title : '标题')
-          .fontColor(this.title.length > 0 ? $r('app.color.text_primary') : $r('app.color.text_secondary'))
+          .fontColor(this.title.length > 0 ? this.skin().text : this.skin().secondary)
           .fontSize(TITLE_FONT_SIZE)
           .fontWeight(FontWeight.Bold)
           .width('100%')
@@ -325,7 +361,7 @@ struct NoteEditor {
 
         Scroll(this.bodyScroller) {
           Text(this.content.length > 0 ? this.content : '正文')
-            .fontColor(this.content.length > 0 ? $r('app.color.text_primary') : $r('app.color.text_secondary'))
+            .fontColor(this.content.length > 0 ? this.skin().text : this.skin().secondary)
             .fontSize(BODY_FONT_SIZE)
             .padding({ top: BODY_INPUT_VERTICAL_PADDING })
             .width('100%')
@@ -340,12 +376,12 @@ struct NoteEditor {
     .padding(EDITOR_PADDING)
     .width('100%')
     .height('100%')
-    .backgroundColor($r('app.color.card_bg'))
+    .backgroundColor(this.skin().background)
     .parallelGesture(
       PanGesture({ direction: PanDirection.Vertical, distance: FOLDER_GESTURE_DISTANCE })
         .onActionStart(() => {
           this.gestureStartProgress = this.folderProgress;
-          this.folderGestureAllowed = !this.editing && !this.menuVisible && !this.folderPickerVisible;
+          this.folderGestureAllowed = !this.editing && !this.menuVisible && !this.folderPickerVisible && !this.skinPickerVisible;
         })
         .onActionUpdate((event: GestureEvent) => {
           if (this.folderGestureAllowed) {
@@ -367,6 +403,42 @@ struct NoteEditor {
   build() {
     Stack({ alignContent: Alignment.TopEnd }) {
       this.EditorContent()
+      if (this.skinPickerVisible) {
+        Column() {
+          Blank()
+            .layoutWeight(1)
+            .width('100%')
+            .onClick(() => {
+              this.skinPickerVisible = false;
+            })
+          Scroll() {
+            Row({ space: EDITOR_PADDING }) {
+              ForEach(NOTE_SKINS, (skin: NoteSkin) => {
+                Button({ type: ButtonType.Normal }) {
+                  Column() {
+                    Text(skin.name).fontSize(BODY_FONT_SIZE).fontColor(skin.text)
+                    Text('笔记预览').fontSize(META_FONT_SIZE).fontColor(skin.secondary)
+                  }
+                }
+                .width(SKIN_CARD_WIDTH)
+                .height(SKIN_CARD_HEIGHT)
+                .backgroundColor(skin.background)
+                .borderRadius(MENU_CORNER)
+                .border({ width: 3, color: this.skinId === skin.id ? SKIN_SELECTED_COLOR : Color.Transparent })
+                .accessibilityText(skin.name)
+                .onClick(() => this.selectSkin(skin.id))
+              })
+            }
+            .padding(EDITOR_PADDING)
+          }
+          .scrollable(ScrollDirection.Horizontal)
+          .scrollBar(BarState.Off)
+          .width('100%')
+          .backgroundColor(this.skin().panel)
+        }
+        .width('100%')
+        .height('100%')
+      }
       if (this.menuVisible || this.folderPickerVisible) {
         Column()
           .width('100%')
@@ -385,7 +457,7 @@ struct NoteEditor {
               .height(MENU_ROW_HEIGHT)
               .fontSize(BODY_FONT_SIZE)
               .fontWeight(FontWeight.Medium)
-              .fontColor($r('app.color.text_primary'))
+              .fontColor(this.skin().text)
               .backgroundColor(Color.Transparent)
               .onClick(() => {
                 if (label === '删除') {
@@ -403,7 +475,7 @@ struct NoteEditor {
         .width(MENU_WIDTH)
         .padding(BODY_INPUT_VERTICAL_PADDING)
         .borderRadius(MENU_CORNER)
-        .backgroundColor($r('app.color.card_bg'))
+        .backgroundColor(this.skin().background)
         .margin({ top: MENU_TOP, right: EDITOR_PADDING })
       }
       if (this.folderPickerVisible) {
@@ -414,13 +486,13 @@ struct NoteEditor {
               .width('100%')
               .height(MENU_ROW_HEIGHT)
               .backgroundColor(Color.Transparent)
-              .fontColor($r('app.color.text_primary'))
+              .fontColor(this.skin().text)
               .onClick(() => this.selectFolder(label))
           })
         }
         .width(MENU_WIDTH)
         .padding(EDITOR_PADDING)
-        .backgroundColor($r('app.color.card_bg'))
+        .backgroundColor(this.skin().background)
         .borderRadius(MENU_CORNER)
         .margin({ top: MENU_TOP, right: EDITOR_PADDING })
       }

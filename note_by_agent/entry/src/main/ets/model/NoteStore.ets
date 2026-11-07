@@ -25,11 +25,20 @@ export function moveNote(id: string, group: string): void {
     if (note.id !== id) {
       return note;
     }
-    return { id: note.id, title: note.title, content: note.content, timeLabel: note.timeLabel, group: group };
+    return { id: note.id, title: note.title, content: note.content, timeLabel: note.timeLabel, group: group, skinId: note.skinId };
   });
 }
 
-export function saveNote(params: NoteEditorParams, title: string, content: string): void {
+export function changeNoteSkin(id: string, skinId: string): void {
+  notes = notes.map((note: Note) => {
+    if (note.id !== id) {
+      return note;
+    }
+    return { id: note.id, title: note.title, content: note.content, timeLabel: note.timeLabel, group: note.group, skinId: skinId };
+  });
+}
+
+export function saveNote(params: NoteEditorParams, title: string, content: string, skinId?: string): void {
   const original: Note | undefined = findNote(params.id);
   const now: Date = new Date();
   const hours: string = now.getHours().toString().padStart(2, '0');
@@ -39,6 +48,7 @@ export function saveNote(params: NoteEditorParams, title: string, content: strin
     group: original?.group ?? params.group,
     title: title,
     content: content,
+    skinId: skinId ?? original?.skinId ?? 'white',
     timeLabel: `${now.getMonth() + 1}月${now.getDate()}日 ${hours}:${minutes}`
   };
   notes = [note, ...notes.filter((item: Note) => item.id !== note.id)];

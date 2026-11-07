@@ -93,6 +93,7 @@ note_by_agent/entry/src/main/ets/
 4. 我优先用命令行构建自检；用户在 DevEco Studio 运行并把视觉/完整报错原样贴回。
 5. 视觉差异由用户反馈，逐条修正。
 6. 不自动执行 git commit / push，除非用户明确要求。
+   提交消息使用 `feat: ...` / `fix: ...` 等格式，不添加 `(codex-gpt)` 标注。
 7. 设计不确定时先问，不自行臆造。
 
 ## 阶段目标

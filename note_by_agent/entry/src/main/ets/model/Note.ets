@@ -4,6 +4,7 @@ export interface Note {
   content: string;
   timeLabel: string;
   group: string;
+  skinId?: string;
 }
 
 export function noteCardTitle(note: Note): string {
