@@ -106,3 +106,4 @@ note_by_agent/entry/src/main/ets/
 - `docs/pages.md`：页面规格
 - `docs/data-model.md`：数据模型
 - `docs/progress.md`：当前进度、下一步、待修问题与历史记录
+- `docs/system-capabilities.md`：系统能力、接口要求、失败处理与兼容性验证记录，接入或调整系统能力时同步更新。

@@ -2,6 +2,9 @@ import { GROUP_ALL, GROUP_UNFILED, NOTE_GROUPS, Note } from '../model/Note';
 import { changeNoteSkin, deleteNote, findNote, moveNote, NoteEditorParams, saveNote } from '../model/NoteStore';
 import { findSkin, NOTE_SKINS, NoteSkin } from '../model/NoteSkin';
 import { NoteDraft, NoteHistory } from '../model/NoteHistory';
+import { systemShare } from '@kit.ShareKit';
+import { common } from '@kit.AbilityKit';
+import { uniformTypeDescriptor } from '@kit.ArkData';
 
 const EDITOR_PADDING: number = 16;
 const TITLE_FONT_SIZE: number = 26;
@@ -39,6 +42,13 @@ struct NoteEditor {
   @State private canRedo: boolean = false;
   private history: NoteHistory = new NoteHistory('', '');
   private pastePending: boolean = false;
+  private shareController?: systemShare.ShareController;
+  private sharing: boolean = false;
+  private shareDismissCallback = (): void => {
+    this.sharing = false;
+    this.shareController?.off('dismiss', this.shareDismissCallback);
+    this.shareController = undefined;
+  };
   @State private menuVisible: boolean = false;
   @State private folderPickerVisible: boolean = false;
   @State private folderProgress: number = 0;
@@ -66,6 +76,7 @@ struct NoteEditor {
 
   aboutToDisappear(): void {
     clearTimeout(this.keyboardTimer);
+    this.shareController?.off('dismiss', this.shareDismissCallback);
   }
 
   private inputEditingChanged(active: boolean, id: string): void {
@@ -179,6 +190,37 @@ struct NoteEditor {
     this.getUIContext().getPromptAction().showToast({ message: name + '待实现' });
   }
 
+  private async shareNote(): Promise<void> {
+    if (this.sharing) {
+      return;
+    }
+    const parts: string[] = [];
+    if (this.title.trim().length > 0) {
+      parts.push(this.title);
+    }
+    if (this.content.trim().length > 0) {
+      parts.push(this.content);
+    }
+    if (parts.length === 0) {
+      this.getUIContext().getPromptAction().showToast({ message: '请填写标题或正文后再分享' });
+      return;
+    }
+    this.sharing = true;
+    try {
+      const data = new systemShare.SharedData({
+        utd: uniformTypeDescriptor.UniformDataType.PLAIN_TEXT,
+        content: parts.join('\n\n')
+      });
+      this.shareController = new systemShare.ShareController(data);
+      this.shareController.on('dismiss', this.shareDismissCallback);
+      const context = this.getUIContext().getHostContext() as common.UIAbilityContext;
+      await this.shareController.show(context, {});
+    } catch {
+      this.shareDismissCallback();
+      this.getUIContext().getPromptAction().showToast({ message: '暂时无法打开分享，请稍后重试' });
+    }
+  }
+
   private skin(): NoteSkin {
     return findSkin(this.skinId);
   }
@@ -237,6 +279,8 @@ struct NoteEditor {
     .onClick(() => {
       if (label === '皮肤') {
         this.skinPickerVisible = !this.skinPickerVisible;
+      } else if (label === '分享') {
+        this.shareNote();
       } else {
         this.pendingFeature(label);
       }
