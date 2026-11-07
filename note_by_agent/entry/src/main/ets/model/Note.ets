@@ -1,3 +1,5 @@
+import { BodyBlock, NoteImage } from './NoteDocument';
+
 export interface Note {
   id: string;
   title: string;
@@ -5,11 +7,13 @@ export interface Note {
   timeLabel: string;
   group: string;
   skinId?: string;
+  blocks?: BodyBlock[];
+  images?: NoteImage[];
 }
 
 export function noteCardTitle(note: Note): string {
   const title: string = note.title.trim();
-  return title.length > 0 ? title : note.content.trim().split('\n')[0].trim();
+  return title.length > 0 ? title : (note.content.trim().split('\n')[0].trim() || (note.blocks?.some((block: BodyBlock) => block.imageId !== '') ? '图片笔记' : ''));
 }
 
 export const GROUP_ALL: string = '全部';

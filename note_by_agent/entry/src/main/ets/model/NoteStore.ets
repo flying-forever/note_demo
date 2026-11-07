@@ -1,3 +1,4 @@
+import { BodyBlock, NoteImage } from './NoteDocument';
 import { FAKE_NOTES, Note } from './Note';
 
 export interface NoteEditorParams {
@@ -25,7 +26,7 @@ export function moveNote(id: string, group: string): void {
     if (note.id !== id) {
       return note;
     }
-    return { id: note.id, title: note.title, content: note.content, timeLabel: note.timeLabel, group: group, skinId: note.skinId };
+    return { id: note.id, title: note.title, content: note.content, timeLabel: note.timeLabel, group: group, skinId: note.skinId, blocks: note.blocks, images: note.images };
   });
 }
 
@@ -34,11 +35,11 @@ export function changeNoteSkin(id: string, skinId: string): void {
     if (note.id !== id) {
       return note;
     }
-    return { id: note.id, title: note.title, content: note.content, timeLabel: note.timeLabel, group: note.group, skinId: skinId };
+    return { id: note.id, title: note.title, content: note.content, timeLabel: note.timeLabel, group: note.group, skinId: skinId, blocks: note.blocks, images: note.images };
   });
 }
 
-export function saveNote(params: NoteEditorParams, title: string, content: string, skinId?: string): void {
+export function saveNote(params: NoteEditorParams, title: string, content: string, skinId?: string, blocks?: BodyBlock[], images?: NoteImage[]): void {
   const original: Note | undefined = findNote(params.id);
   const now: Date = new Date();
   const hours: string = now.getHours().toString().padStart(2, '0');
@@ -46,6 +47,8 @@ export function saveNote(params: NoteEditorParams, title: string, content: strin
   const note: Note = {
     id: original?.id ?? `new-${nextId++}`,
     group: original?.group ?? params.group,
+    blocks: blocks,
+    images: images,
     title: title,
     content: content,
     skinId: skinId ?? original?.skinId ?? 'white',

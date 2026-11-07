@@ -82,6 +82,7 @@ note_by_agent/entry/src/main/ets/
 - 颜色、字号、间距优先集中在 `resources/base/element/` 或 `common/` 常量中，禁止到处写魔法值。
 - 资源引用用 `$r('app.color.xxx')` / `$r('app.string.xxx')`。
 - 状态用 `@State` / `@Prop` / `@Link`，跨页传参用 `router` 或 `AppStorage`。
+- `ForEach` 使用稳定 key 时，复用节点不能依赖已被替换的旧 item 对象；可变显示值按 ID 读取当前状态，或采用可观察对象与子组件绑定。不要把输入内容加入 key 来强制重建输入框。相关排查与真机回归见 `docs/system-capabilities.md` 的「接入经验」。
 - 缩进 2 空格。
 - 除非明确要求，不写注释。
 
