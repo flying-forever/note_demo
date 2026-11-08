@@ -1,10 +1,11 @@
+import { persistDesktopNote, readDesktopNote, refreshDesktopCards } from '../model/DesktopNoteRepository';
 import { BodyBlock, NoteImage, textBlock, documentText, copyImage } from '../model/NoteDocument';
 import { photoAccessHelper } from '@kit.MediaLibraryKit';
 import { fileIo as fs } from '@kit.CoreFileKit';
 import { image } from '@kit.ImageKit';
 
 import { GROUP_ALL, GROUP_UNFILED, NOTE_GROUPS, Note } from '../model/Note';
-import { changeNoteSkin, deleteNote, findNote, listNotes, moveNote, NoteEditorParams, saveNote } from '../model/NoteStore';
+import { changeNoteSkin, deleteNote, findNote, listNotes, moveNote, NoteEditorParams, saveNote, syncDesktopNotes } from '../model/NoteStore';
 import { findSkin, NOTE_SKINS, NoteSkin } from '../model/NoteSkin';
 import { NoteDraft, NoteHistory } from '../model/NoteHistory';
 import { systemShare } from '@kit.ShareKit';
@@ -85,6 +86,7 @@ struct NoteEditor {
   private original?: Note;
 
   aboutToAppear(): void {
+    syncDesktopNotes();
     this.params = this.getUIContext().getRouter().getParams() as NoteEditorParams;
     this.original = findNote(this.params.id);
     this.title = this.original?.title ?? '';
@@ -98,6 +100,65 @@ struct NoteEditor {
     this.editing = this.original === undefined;
     this.selectedGroup = this.original?.group ?? this.params.group;
     this.skinId = this.original?.skinId ?? 'white';
+  }
+
+  onPageShow(): void {
+    syncDesktopNotes();
+    const latest = readDesktopNote(this.params.id);
+    if (latest && this.original && JSON.stringify(latest) !== JSON.stringify(this.original)) {
+      this.refreshExternalNote(latest);
+    }
+  }
+
+  private async refreshExternalNote(latest: Note): Promise<void> {
+    if (this.title !== this.original?.title || this.originalDocument !== JSON.stringify(this.blocks) ||
+      this.originalImages !== JSON.stringify(this.images)) {
+      try {
+        const choice = await this.getUIContext().getPromptAction().showDialog({
+          title: '笔记已在桌面更新', message: '选择保留当前编辑，或载入桌面保存的内容。',
+          buttons: [{ text: '保留当前编辑', color: $r('app.color.text_primary') },
+            { text: '载入桌面版本', color: $r('app.color.accent') }]
+        });
+        if (choice.index === 0) {
+          this.original = latest;
+          return;
+        }
+      } catch {
+        return;
+      }
+    }
+    this.original = latest;
+    this.title = latest.title;
+    this.content = latest.content;
+    this.blocks = latest.blocks ?? [textBlock(latest.content)];
+    this.images = latest.images ?? [];
+    this.skinId = latest.skinId ?? 'white';
+    this.selectedGroup = latest.group;
+    this.params.group = latest.group;
+    this.originalDocument = JSON.stringify(this.blocks);
+    this.originalImages = JSON.stringify(this.images);
+    this.history = new NoteHistory(this.title, this.originalDocument);
+    this.updateHistoryButtons();
+  }
+
+  private sendToDesktop(): void {
+    this.menuVisible = false;
+    if (!this.title.trim() && !this.content.trim() && !this.hasImages()) {
+      this.getUIContext().getPromptAction().showToast({ message: '请填写内容后再发送到桌面' });
+      return;
+    }
+    try {
+      const note = saveNote(this.params, this.title, this.content, this.skinId, this.blocks,
+        this.images.filter((item: NoteImage) => this.blocks.some((block: BodyBlock) => block.imageId === item.id)));
+      persistDesktopNote(note);
+      refreshDesktopCards(note.id);
+      this.original = note;
+      this.originalDocument = JSON.stringify(this.blocks);
+      this.originalImages = JSON.stringify(this.images);
+      this.getUIContext().getRouter().pushUrl({ url: 'pages/NoteDesktop', params: this.params });
+    } catch {
+      this.getUIContext().getPromptAction().showToast({ message: '无法保存笔记，请稍后重试' });
+    }
   }
 
   aboutToDisappear(): void {
@@ -503,9 +564,14 @@ struct NoteEditor {
       }
       return true;
     }
-    saveNote(this.params, this.title, this.content, this.skinId, this.blocks,
-      this.images.filter((item: NoteImage) => this.blocks.some((block: BodyBlock) => block.imageId === item.id)));
-    return true;
+    try {
+      saveNote(this.params, this.title, this.content, this.skinId, this.blocks,
+        this.images.filter((item: NoteImage) => this.blocks.some((block: BodyBlock) => block.imageId === item.id)));
+      return true;
+    } catch {
+      this.getUIContext().getPromptAction().showToast({ message: '保存失败，请稍后重试' });
+      return false;
+    }
   }
 
   onBackPress(): boolean {
@@ -841,6 +907,8 @@ struct NoteEditor {
               .onClick(() => {
                 if (label === '删除') {
                   this.confirmDelete();
+                } else if (label === '发送到桌面') {
+                  this.sendToDesktop();
                 } else if (label === '移动到') {
                   this.menuVisible = false;
                   this.folderPickerVisible = true;

@@ -1,6 +1,6 @@
 import { NoteCard } from '../components/NoteCard';
 import { GROUP_ALL, GROUP_UNFILED, NOTE_GROUPS, Note, noteCardTitle } from '../model/Note';
-import { listNotes, NoteEditorParams } from '../model/NoteStore';
+import { listNotes, NoteEditorParams, syncDesktopNotes, findNote } from '../model/NoteStore';
 
 const LARGE_TITLE_FONT_SIZE: number = 44;
 const HEADER_SLOT_HEIGHT: number = 56;
@@ -13,6 +13,7 @@ const SEARCH_RELEASE_DELAY: number = 50;
 @Entry
 @Component
 struct Index {
+  @StorageLink('desktopLaunchNoteId') @Watch('openDesktopLaunch') private desktopLaunchNoteId: string = '';
   @State currentTab: number = 0;
   @State selectedGroup: string = GROUP_ALL;
   @State searchProgress: number = 0;
@@ -25,7 +26,25 @@ struct Index {
   private scroller: Scroller = new Scroller();
 
   onPageShow(): void {
+    syncDesktopNotes();
     this.allNotes = listNotes();
+    this.openDesktopLaunch();
+  }
+
+  private openDesktopLaunch(): void {
+    const id: string = this.desktopLaunchNoteId;
+    if (id === '') {
+      return;
+    }
+    this.desktopLaunchNoteId = '';
+    syncDesktopNotes();
+    const note = findNote(id);
+    if (!note) {
+      this.getUIContext().getPromptAction().showToast({ message: '笔记已删除或不可用' });
+      return;
+    }
+    this.getUIContext().getRouter().pushUrl({ url: 'pages/NoteEditor', params: { id: id, group: note.group } })
+      .catch(() => this.getUIContext().getPromptAction().showToast({ message: '无法打开笔记，请重试' }));
   }
 
   private openEditor(id: string): void {

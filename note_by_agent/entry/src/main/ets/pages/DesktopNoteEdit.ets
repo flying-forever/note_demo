@@ -1,0 +1,137 @@
+import { desktopEditStorage } from '../model/DesktopEditStorage';
+import { UIExtensionContentSession } from '@kit.AbilityKit';
+import { formBindingData, formProvider } from '@kit.FormKit';
+import { BodyBlock, documentText, textBlock } from '../model/NoteDocument';
+import { Note } from '../model/Note';
+import { desktopLink, readDesktopNote, persistDesktopNote, refreshDesktopCards, desktopCardData } from '../model/DesktopNoteRepository';
+
+const EDIT_PADDING: number = 12;
+const EDIT_FONT_SIZE: number = 16;
+const PREVIEW_REFRESH_DELAY: number = 300;
+const PREVIEW_REFRESH_ATTEMPTS: number = 3;
+
+@Entry(desktopEditStorage)
+@Component
+struct DesktopNoteEdit {
+  @LocalStorageProp('formId') private formId: string = '';
+  @LocalStorageProp('previewFormId') private previewFormId: string = '';
+  private session: UIExtensionContentSession | undefined = desktopEditStorage.get<UIExtensionContentSession>('editSession');
+  @State private title: string = '';
+  @State private blocks: BodyBlock[] = [];
+  @State private available: boolean = false;
+  @State private saving: boolean = false;
+  @State private status: string = '';
+  private original?: Note;
+  private originalSnapshot: string = '';
+  private previewTimer: number = -1;
+  private disposed: boolean = false;
+
+  aboutToAppear(): void {
+    const link = desktopLink(this.formId);
+    this.original = link ? readDesktopNote(link.noteId) : undefined;
+    this.originalSnapshot = JSON.stringify(this.original);
+    this.title = this.original?.title ?? '';
+    this.blocks = this.original?.blocks ?? [textBlock(this.original?.content ?? '')];
+    this.available = this.original !== undefined;
+    this.status = this.available ? '' : '笔记不可用，请从应用内重新发送到桌面';
+  }
+
+  private blockText(id: string): string {
+    return this.blocks.find((block: BodyBlock) => block.id === id)?.text ?? '';
+  }
+
+  aboutToDisappear(): void {
+    this.disposed = true;
+    clearTimeout(this.previewTimer);
+  }
+
+  private async refreshPreview(attempt: number = 0): Promise<void> {
+    if (this.previewFormId && this.original) {
+      try {
+        await formProvider.updateForm(this.previewFormId,
+          formBindingData.createFormBindingData(desktopCardData(this.original)));
+      } catch {
+        if (attempt === PREVIEW_REFRESH_ATTEMPTS - 1) {
+          this.status = '预览暂未更新，保存时将重新刷新';
+        }
+      }
+      if (!this.disposed && attempt < PREVIEW_REFRESH_ATTEMPTS - 1) {
+        this.previewTimer = setTimeout(() => this.refreshPreview(attempt + 1), PREVIEW_REFRESH_DELAY * (attempt + 1));
+      }
+    }
+  }
+
+  private async close(): Promise<void> {
+    try { await this.session?.terminateSelf(); } catch {}
+  }
+
+  private async save(): Promise<void> {
+    const original = this.original;
+    if (!original || this.saving) {
+      return;
+    }
+    if (!this.title.trim() && !documentText(this.blocks).trim() && !this.blocks.some((block: BodyBlock) => block.imageId !== '')) {
+      this.status = '请填写标题或正文';
+      return;
+    }
+    this.saving = true;
+    try {
+      if (JSON.stringify(readDesktopNote(original.id)) !== this.originalSnapshot) {
+        this.status = '笔记已更新，请关闭后重新编辑';
+        return;
+      }
+      const now = new Date();
+      const note: Note = { id: original.id, title: this.title, content: documentText(this.blocks),
+        blocks: this.blocks, images: original.images, skinId: original.skinId, group: original.group,
+        timeLabel: `${now.getMonth() + 1}月${now.getDate()}日 ${now.getHours().toString().padStart(2, '0')}:${now.getMinutes().toString().padStart(2, '0')}` };
+      persistDesktopNote(note);
+      this.original = note;
+      this.originalSnapshot = JSON.stringify(note);
+      await refreshDesktopCards(note.id);
+      if (this.previewFormId) {
+        await formProvider.updateForm(this.previewFormId, formBindingData.createFormBindingData(desktopCardData(note)));
+      }
+      this.status = '已保存';
+    } catch {
+      this.status = '保存或卡片刷新失败，请重试';
+    } finally {
+      this.saving = false;
+    }
+  }
+
+  build() {
+    Column({ space: EDIT_PADDING }) {
+      Row() {
+        Button('取消').onClick(() => this.close())
+        Blank()
+        Button('保存').enabled(this.available && !this.saving).onClick(() => this.save())
+      }.width('100%')
+      if (this.available) {
+        TextInput({ text: this.title, placeholder: '标题' })
+          .id('desktop-edit-title').fontSize(EDIT_FONT_SIZE)
+          .onChange((value: string) => { this.title = value; })
+        Scroll() {
+          Column({ space: EDIT_PADDING }) {
+            ForEach(this.blocks, (block: BodyBlock) => {
+              if (block.imageId === '') {
+                TextArea({ text: this.blockText(block.id), placeholder: '正文' })
+                  .id('desktop-edit-' + block.id).fontSize(EDIT_FONT_SIZE).width('100%')
+                  .constraintSize({ minHeight: 72 })
+                  .onChange((value: string) => {
+                    this.blocks = this.blocks.map((item: BodyBlock) => item.id === block.id ?
+                      { id: item.id, text: value, imageId: '' } : item);
+                  })
+              } else {
+                Text('图片已保留').fontSize(12).fontColor($r('app.color.text_secondary'))
+              }
+            }, (block: BodyBlock) => block.id)
+          }.width('100%')
+        }.layoutWeight(1).width('100%')
+      }
+      if (this.status !== '') {
+        Text(this.status).fontSize(12).fontColor($r('app.color.text_secondary'))
+      }
+    }.padding(EDIT_PADDING).width('100%').height('100%').backgroundColor(Color.White)
+    .onAppear(() => this.refreshPreview())
+  }
+}

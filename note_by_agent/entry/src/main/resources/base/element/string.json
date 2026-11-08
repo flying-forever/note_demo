@@ -11,6 +11,14 @@
     {
       "name": "EntryAbility_label",
       "value": "label"
+    },
+    {
+      "name": "note_widget_name",
+      "value": "笔记"
+    },
+    {
+      "name": "note_widget_description",
+      "value": "在桌面查看笔记，长按卡片可编辑文字"
     }
   ]
 }

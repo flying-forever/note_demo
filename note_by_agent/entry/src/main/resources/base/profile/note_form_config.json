@@ -1,0 +1,19 @@
+{
+  "forms": [
+    {
+      "name": "NoteWidget",
+      "displayName": "$string:note_widget_name",
+      "description": "$string:note_widget_description",
+      "src": "./ets/widget/pages/NoteWidget.ets",
+      "uiSyntax": "arkts",
+      "isDefault": true,
+      "isDynamic": true,
+      "updateEnabled": false,
+      "defaultDimension": "2*2",
+      "supportDimensions": [
+        "2*2"
+      ],
+      "formConfigAbility": "ability://NoteFormEditAbility"
+    }
+  ]
+}

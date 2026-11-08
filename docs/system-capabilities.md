@@ -21,6 +21,19 @@ SDK 版本信息来自本机已安装 SDK 的声明文件。运行设备的系�
 - 插入与删除可撤销，离页后清理没有笔记引用的本轮附件，不触及相册文件。笔记持久化尚未接入，进程重启后图片文件保留但笔记不恢复；跨进程孤立附件清理待统一实现。
 - 构建及当前连接真机验证通过：正文输入/退格、重复插图、重启后插图、图前后输入、图片删除/撤销/重做、离页重开。其他图片格式、选择取消、空间不足、超大图片、中文预输入及更多输入法场景仍待验收。
 
+## 桌面卡片与半模态编辑（第 7 步）
+
+- ArkUI AddFormMenuItem（API 12）提交 2×2 卡片，FormKit FormExtensionAbility 通过 onAddForm、onUpdateForm、onRemoveForm 管理实例，updateForm 刷新。module.json5 声明 form 扩展及表单配置；配置关联 formEdit 扩展，目标仍为 API 19。
+- FormEditExtensionAbility 自 API 18 支持。桌面长按卡片的「编辑」通过 cardId 和 previewCardId 指定实际卡片与预览卡片，UIExtensionContentSession.loadContent 加载独立页面，通过会话 terminateSelf 关闭。普通卡片组件清单不包含 TextInput/TextArea，半模态扩展页面可使用这两个组件。
+- 卡片只提交标题、文字摘要和皮肤配色；图片保存在笔记中，不传入卡片。点击通过 postCardAction 的 router 事件进入应用。UIAbility 同时处理 onCreate 和 onNewWant，解析序列化的 parameters.params，并可从卡片实例关联恢复目标 ID；通过 AppStorage 交给首页就绪后导航，避免窗口创建时过早操作路由。
+- UIAbility 与卡片扩展均使用 filesDir/desktop-notes 下的文件记录，不依赖进程内单例共享。添加前保存笔记，添加成功后保存 formId 与 noteId 的关联；更新失败保留笔记并记录日志；无效或已删除笔记显示占位，点击不创建新笔记。
+- 半模态编辑仅修改标题和文字块，保留图片引用；保存前比对记录快照，防止覆盖其他页面已保存的内容。桌面预览和编辑区异步创建，页面显示后最多刷新预览三次，关闭页面清理延迟任务；最终刷新失败显示提示，保存时再次尝试。
+- 本地 JSON 写入先写临时文件并 fsync，再 rename；只有成功后才更新内存。重复创建目录前检查存在性。读写异常、磁盘空间不足、其他桌面宿主和真实设备重启等边界需继续扩展验证。
+
+当前连接真机已验证：加桌、冷启动与后台点击跳转、应用内更新、半模态标题/正文输入与保存、预览初始化、取消、应用进程停止后的恢复、删除状态和移除。图片引用保持与多卡片、写入失败通过数据层检查；图片笔记的半模态完整真机流程、设备重启和其他宿主尚未实测。
+
+参考：[卡片编辑](https://developer.huawei.com/consumer/cn/doc/harmonyos-guides/arkts-ui-widget-event-formeditextensionability/)、[卡片路由](https://developer.huawei.com/consumer/cn/doc/HarmonyOS-Guides/arkts-ui-widget-event-router/)、[添加卡片菜单](https://developer.huawei.com/consumer/cn/doc/harmonyos-references/ohos-arkui-advanced-formmenu/)。接口版本同时核对本机 SDK 声明。
+
 ## 接入经验
 
 - 列表 key 决定节点身份，不等于 item 数据绑定。稳定 key 下替换数组中的普通对象，复用节点的闭包可能仍读取旧对象，导致输入闪现后回退。当前正文按稳定 ID 查询最新状态，保留输入框实例与焦点。不要以文字内容作为 key 绕过同步问题，否则每次输入可能重建节点并丢失光标、预输入或焦点。
@@ -33,5 +46,5 @@ SDK 版本信息来自本机已安装 SDK 的声明文件。运行设备的系�
 
 ## 后续接入时补充
 
-- 图片选择与附件文件管理、录音与权限、手写、提醒通知、私密认证及保护、桌面展示、本地持久化。
+- 图片附件的跨进程孤立文件清理、录音与权限、手写、提醒通知、私密认证及保护、完整笔记持久化。
 - 每项补录最低接口版本、设备能力和权限要求、授权拒绝及系统不支持时的处理、资源与监听释放，以及实际通过验证的设备和系统版本。
