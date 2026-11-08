@@ -1,3 +1,4 @@
+import { BreezeSkinView } from '../components/BreezeSkinView';
 import { persistDesktopNote, readDesktopNote, refreshDesktopCards } from '../model/DesktopNoteRepository';
 import { BodyBlock, NoteImage, textBlock, documentText, copyImage } from '../model/NoteDocument';
 import { photoAccessHelper } from '@kit.MediaLibraryKit';
@@ -815,7 +816,7 @@ struct NoteEditor {
     .padding(EDITOR_PADDING)
     .width('100%')
     .height('100%')
-    .backgroundColor(this.skin().background)
+    .backgroundColor(this.skinId === 'breeze' ? Color.Transparent : this.skin().background)
     .parallelGesture(
       PanGesture({ direction: PanDirection.Vertical, distance: FOLDER_GESTURE_DISTANCE })
         .onActionStart(() => {
@@ -841,6 +842,9 @@ struct NoteEditor {
 
   build() {
     Stack({ alignContent: Alignment.TopEnd }) {
+      if (this.skinId === 'breeze') {
+        BreezeSkinView()
+      }
       this.EditorContent()
       if (this.detailImage !== '') {
         this.ImageDetails()
@@ -860,9 +864,14 @@ struct NoteEditor {
             Row({ space: EDITOR_PADDING }) {
               ForEach(NOTE_SKINS, (skin: NoteSkin) => {
                 Button({ type: ButtonType.Normal }) {
-                  Column() {
+                  Stack() {
+                    if (skin.id === 'breeze') {
+                      Image($r('app.media.skin_breeze_leaf')).width(70).height(100).opacity(0.22)
+                    }
+                    Column() {
                     Text(skin.name).fontSize(BODY_FONT_SIZE).fontColor(skin.text)
                     Text('笔记预览').fontSize(META_FONT_SIZE).fontColor(skin.secondary)
+                    }
                   }
                 }
                 .width(SKIN_CARD_WIDTH)
@@ -946,6 +955,7 @@ struct NoteEditor {
     }
     .width('100%')
     .height('100%')
+    .backgroundColor(this.skin().background)
   }
 
   private settleFolder(): void {

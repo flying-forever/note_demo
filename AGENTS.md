@@ -84,6 +84,7 @@ note_by_agent/entry/src/main/ets/
 - 状态用 `@State` / `@Prop` / `@Link`，跨页传参用 `router` 或 `AppStorage`。
 - `ForEach` 使用稳定 key 时，复用节点不能依赖已被替换的旧 item 对象；可变显示值按 ID 读取当前状态，或采用可观察对象与子组件绑定。不要把输入内容加入 key 来强制重建输入框。相关排查与真机回归见 `docs/system-capabilities.md` 的「接入经验」。
 - 缩进 2 空格。
+- ArkUI 属性动画要显式隔离作用范围。仅旋转循环时，在宽高等布局属性后设置 `.animation(null)`，再设置 `.rotate(...).animation(...)`，避免窗口测量或切换尺寸触发无限宽高动画。排查与真机验证见 `docs/system-capabilities.md` 的「接入经验」。
 - 除非明确要求，不写注释。
 
 ## 协作流程
