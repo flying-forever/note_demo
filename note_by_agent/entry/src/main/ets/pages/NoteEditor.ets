@@ -11,6 +11,7 @@ import { changeNoteSkin, deleteNote, moveNote, NoteEditorParams } from '../servi
 import { findNote, listNotes, syncDesktopNotes } from '../repository/NoteRepository';
 import { findSkin, isDynamicSkin, NoteSkin } from '../model/NoteSkin';
 import { NoteEditorSession } from '../viewmodel/NoteEditorSession';
+import { noteTextCaret } from '../platform/NoteTextHitTest';
 import { importNoteImage, releaseUnusedImages } from '../platform/NoteAttachments';
 import { NoteShare } from '../platform/NoteShare';
 import { common } from '@kit.AbilityKit';
@@ -23,6 +24,9 @@ const BODY_LINE_HEIGHT: number = 26;
 const TITLE_LINE_HEIGHT: number = 40;
 const SKIN_PANEL_HEIGHT: number = 162;
 const SCROLL_RESTORE_DELAY: number = 60;
+const BODY_CORNER: number = 12;
+const IMAGE_CORNER: number = 8;
+const BODY_END_SPACE: number = 12;
 const META_FONT_SIZE: number = 13;
 const NAV_ICON_SIZE: number = 24;
 const TITLE_INPUT_ID: string = 'note-editor-title';
@@ -55,6 +59,10 @@ struct NoteEditor {
   private scrollRestoreTimer: number = -1;
   private savedBodyOffset: number = 0;
   private inputControllers: Map<string, TextAreaController> = new Map();
+  private browseControllers: Map<string, TextController> = new Map();
+  private titleBrowseController: TextController = new TextController();
+  private titleInputController: TextInputController = new TextInputController();
+  private titleCaret: number = 0;
   @State private editing: boolean = false;
   @State private skinId: string = 'white';
   @State private skinPickerVisible: boolean = false;
@@ -261,6 +269,15 @@ struct NoteEditor {
     return controller;
   }
 
+  private browseControllerFor(id: string): TextController {
+    let controller = this.browseControllers.get(id);
+    if (!controller) {
+      controller = new TextController();
+      this.browseControllers.set(id, controller);
+    }
+    return controller;
+  }
+
   private hasImages(): boolean { return this.session.hasImages(); }
 
   private imageItem(id: string): NoteImage { return this.session.imageItem(id); }
@@ -352,6 +369,7 @@ struct NoteEditor {
         .width(this.imageItem(block.imageId).small ? IMAGE_SMALL_WIDTH : '100%')
         .aspectRatio(this.imageItem(block.imageId).width / this.imageItem(block.imageId).height)
         .objectFit(ImageFit.Contain)
+        .borderRadius(IMAGE_CORNER).clip(true)
         .accessibilityText(this.imageItem(block.imageId).caption || '笔记图片')
         .onClick(() => {
           this.session.closeGroup();
@@ -429,19 +447,23 @@ struct NoteEditor {
               .onPaste(() => this.preparePaste())
               .onChange((value: string, preview?: PreviewText) => this.changeBlock(value, block.id, preview))
           } else {
-            Text(this.blockText(block.id) || (this.session.blocks.length === 1 ? '正文' : ' '))
+            Text(this.blockText(block.id) || (this.session.blocks.length === 1 ? '正文' : ' '),
+              { controller: this.browseControllerFor(block.id) })
               .fontColor(this.blockText(block.id) ? this.skin().text : this.skin().secondary)
               .fontSize(BODY_FONT_SIZE).width('100%')
               .lineHeight(BODY_LINE_HEIGHT)
               .constraintSize({ minHeight: NAV_BUTTON_SIZE })
-              .onClick(() => {
+              .onClick((event: ClickEvent) => {
+                const caret = noteTextCaret(this.blockText(block.id), this.browseControllers.get(block.id),
+                  this.getUIContext().vp2px(event.x), this.getUIContext().vp2px(event.y));
+                this.session.caret = caret ?? (this.session.activeBlock === block.id ? this.session.caret : 0);
                 this.selectedImage = '';
                 this.session.activeBlock = block.id;
                 this.startEditing(block.id);
               })
           }
         }, (block: BodyBlock) => block.id)
-        Blank().height(NAV_BUTTON_SIZE).width('100%').onClick(() => {
+        Blank().height(BODY_END_SPACE).width('100%').onClick(() => {
           this.selectedImage = '';
           const last: BodyBlock = this.session.blocks[this.session.blocks.length - 1];
           this.session.activeBlock = last.id;
@@ -451,6 +473,7 @@ struct NoteEditor {
       }.width('100%')
     }
     .align(Alignment.TopStart).layoutWeight(1).width('100%')
+    .borderRadius(BODY_CORNER).clip(true)
     .onDidScroll(() => { this.selectedImage = ''; })
   }
 
@@ -506,6 +529,7 @@ struct NoteEditor {
   private focusInput(id: string): void {
     if (this.focusTarget === id) {
       this.getUIContext().getFocusController().requestFocus(id);
+      if (id === TITLE_INPUT_ID) { this.titleInputController.caretPosition(this.titleCaret); }
     }
   }
 
@@ -740,7 +764,7 @@ struct NoteEditor {
         .height(FOLDER_HEIGHT * this.folderProgress)
         .clip(true)
       if (this.editing) {
-        TextInput({ text: this.session.title, placeholder: '标题' })
+        TextInput({ text: this.session.title, placeholder: '标题', controller: this.titleInputController })
           .id(TITLE_INPUT_ID)
           .placeholderColor(this.skin().secondary)
           .backgroundColor(Color.Transparent)
@@ -755,7 +779,7 @@ struct NoteEditor {
           .onChange((value: string, preview?: PreviewText) => this.changeText(value, TITLE_INPUT_ID, preview))
 
       } else {
-        Text(this.session.title.length > 0 ? this.session.title : '标题')
+        Text(this.session.title.length > 0 ? this.session.title : '标题', { controller: this.titleBrowseController })
           .fontColor(this.session.title.length > 0 ? this.skin().text : this.skin().secondary)
           .fontSize(TITLE_FONT_SIZE)
           .fontWeight(FontWeight.Bold)
@@ -763,14 +787,18 @@ struct NoteEditor {
           .maxLines(1)
           .textOverflow({ overflow: TextOverflow.Ellipsis })
           .height(TITLE_LINE_HEIGHT)
-          .onClick(() => this.startEditing(TITLE_INPUT_ID))
+          .onClick((event: ClickEvent) => {
+            this.titleCaret = noteTextCaret(this.session.title, this.titleBrowseController,
+              this.getUIContext().vp2px(event.x), this.getUIContext().vp2px(event.y)) ?? 0;
+            this.startEditing(TITLE_INPUT_ID);
+          })
 
       }
       this.Metadata()
       this.DocumentBody()
-      Column() {
+      if (this.editing) {
         this.EditTools()
-      }.height(NAV_BUTTON_SIZE).visibility(this.editing ? Visibility.Visible : Visibility.Hidden)
+      }
     }
     .alignItems(HorizontalAlign.Start)
     .padding(EDITOR_PADDING)
@@ -822,6 +850,10 @@ struct NoteEditor {
           } })
       }
       if (this.skinPickerVisible) {
+        Column()
+          .width('100%').height('100%')
+          .position({ x: 0, y: EDITOR_PADDING + NAV_BUTTON_SIZE })
+          .onClick(() => { this.skinPickerVisible = false; })
         Column() {
           NoteSkinPickerView({ selectedId: this.skinId, panelColor: this.skin().panel,
             onSelect: (id: string) => this.selectSkin(id) })

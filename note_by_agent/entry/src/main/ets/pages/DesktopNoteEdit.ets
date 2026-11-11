@@ -2,12 +2,18 @@ import { UIExtensionContentSession } from '@kit.AbilityKit';
 import { formBindingData, formProvider } from '@kit.FormKit';
 import { BodyBlock, textBlock } from '../model/NoteDocument';
 import { Note } from '../model/Note';
+import { NoteSkin, findSkin } from '../model/NoteSkin';
 import { desktopLink, readDesktopNote } from '../repository/DesktopNoteRepository';
 import { desktopCardData } from '../platform/DesktopCards';
 import { saveNoteDraft, snapshotNote } from '../services/NoteService';
 
-const EDIT_PADDING: number = 12;
+const EDIT_PADDING: number = 8;
 const EDIT_FONT_SIZE: number = 16;
+const EDIT_RADIUS: number = 20;
+const EDIT_INNER_RADIUS: number = 14;
+const EDIT_BUTTON_HEIGHT: number = 32;
+const EDIT_BODY_MIN_HEIGHT: number = 120;
+const EDIT_HINT: string = '系统“完成”不保存，请点“保存并结束编辑”';
 const PREVIEW_REFRESH_DELAY: number = 300;
 const PREVIEW_REFRESH_ATTEMPTS: number = 3;
 
@@ -22,6 +28,7 @@ struct DesktopNoteEdit {
   @State private available: boolean = false;
   @State private saving: boolean = false;
   @State private status: string = '';
+  @State private skin: NoteSkin = findSkin('white');
   private original?: Note;
   private originalSnapshot: string = '';
   private previewTimer: number = -1;
@@ -40,7 +47,8 @@ struct DesktopNoteEdit {
     this.title = this.original?.title ?? '';
     this.blocks = this.original?.blocks ?? [textBlock(this.original?.content ?? '')];
     this.available = this.original !== undefined;
-    this.status = this.available ? '' : '笔记不可用，请从应用内重新发送到桌面';
+    this.skin = findSkin(this.original?.skinId ?? 'white');
+    this.status = this.available ? EDIT_HINT : '笔记不可用，请从应用内重新发送到桌面';
   }
 
   private blockText(id: string): string {
@@ -58,7 +66,7 @@ struct DesktopNoteEdit {
         await formProvider.updateForm(this.previewFormId,
           formBindingData.createFormBindingData(desktopCardData(this.original)));
       } catch {
-        if (!this.disposed && this.status === '' && attempt === PREVIEW_REFRESH_ATTEMPTS - 1) {
+        if (!this.disposed && this.status === EDIT_HINT && attempt === PREVIEW_REFRESH_ATTEMPTS - 1) {
           this.status = '预览暂未更新，保存时将重新刷新';
         }
       }
@@ -69,7 +77,15 @@ struct DesktopNoteEdit {
   }
 
   private async close(): Promise<void> {
-    try { await this.session?.terminateSelf(); } catch {}
+    try {
+      if (!this.session) {
+        this.status = '无法关闭，请点系统“完成”退出';
+        return;
+      }
+      await this.session.terminateSelf();
+    } catch {
+      this.status = '无法关闭，请点系统“完成”退出';
+    }
   }
 
   private async save(): Promise<void> {
@@ -102,6 +118,7 @@ struct DesktopNoteEdit {
           }
         }
       }
+      await this.close();
     } finally {
       if (!this.disposed) {
         this.saving = false;
@@ -109,45 +126,71 @@ struct DesktopNoteEdit {
     }
   }
 
+  @Builder
+  private bodyEditor(block: BodyBlock) {
+    TextArea({ text: this.blockText(block.id), placeholder: '正文' })
+      .id('desktop-edit-' + block.id).fontSize(EDIT_FONT_SIZE).fontColor(this.skin.text)
+      .placeholderColor(this.skin.secondary).backgroundColor(this.skin.background)
+      .borderRadius(EDIT_INNER_RADIUS).padding({ left: 12, right: 12, top: 8, bottom: 8 })
+      .width('100%').constraintSize({ minHeight: this.blocks.length === 1 ? 0 : EDIT_BODY_MIN_HEIGHT })
+      .layoutWeight(this.blocks.length === 1 ? 1 : 0)
+      .enabled(!this.saving)
+      .onChange((value: string) => {
+        this.blocks = this.blocks.map((item: BodyBlock) => item.id === block.id ?
+          { id: item.id, text: value, imageId: '' } : item);
+        this.status = EDIT_HINT;
+      })
+  }
+
   build() {
     Column({ space: EDIT_PADDING }) {
       Row() {
-        Button('取消').onClick(() => this.close())
+        Button('取消').height(EDIT_BUTTON_HEIGHT).fontSize(14)
+          .fontColor(this.skin.secondary).backgroundColor(this.skin.panel)
+          .borderRadius(EDIT_INNER_RADIUS).enabled(!this.saving).onClick(() => this.close())
         Blank()
-        Button('保存').enabled(this.available && !this.saving).onClick(() => this.save())
+        Button(this.saving ? '保存中' : '保存并结束编辑').height(EDIT_BUTTON_HEIGHT).fontSize(14)
+          .fontColor(this.skin.background).backgroundColor(this.skin.text).borderRadius(EDIT_INNER_RADIUS)
+          .enabled(this.available && !this.saving).onClick(() => this.save())
       }.width('100%')
       if (this.available) {
-        Text('修改后请先点“保存”，再点系统“完成”；直接关闭不会保存。')
-          .fontSize(12).fontColor($r('app.color.text_secondary')).width('100%')
-        TextInput({ text: this.title, placeholder: '标题' })
-          .id('desktop-edit-title').fontSize(EDIT_FONT_SIZE)
-          .onChange((value: string) => {
-            this.title = value;
-            this.status = '尚未保存，请点击“保存”';
-          })
-        Scroll() {
-          Column({ space: EDIT_PADDING }) {
-            ForEach(this.blocks, (block: BodyBlock) => {
-              if (block.imageId === '') {
-                TextArea({ text: this.blockText(block.id), placeholder: '正文' })
-                  .id('desktop-edit-' + block.id).fontSize(EDIT_FONT_SIZE).width('100%')
-                  .constraintSize({ minHeight: 72 })
-                  .onChange((value: string) => {
-                    this.blocks = this.blocks.map((item: BodyBlock) => item.id === block.id ?
-                      { id: item.id, text: value, imageId: '' } : item);
-                    this.status = '尚未保存，请点击“保存”';
-                  })
-              } else {
-                Text('图片已保留').fontSize(12).fontColor($r('app.color.text_secondary'))
-              }
-            }, (block: BodyBlock) => block.id)
-          }.width('100%')
-        }.layoutWeight(1).width('100%')
+        Column() {
+          TextInput({ text: this.title, placeholder: '标题' })
+            .id('desktop-edit-title').fontSize(18).fontWeight(FontWeight.Medium).height(44)
+            .fontColor(this.skin.text).placeholderColor(this.skin.secondary)
+            .backgroundColor(this.skin.background).borderRadius(EDIT_INNER_RADIUS)
+            .padding({ left: 12, right: 12 })
+            .enabled(!this.saving)
+            .onChange((value: string) => {
+              this.title = value;
+              this.status = EDIT_HINT;
+            })
+          if (this.blocks.length === 1 && this.blocks[0].imageId === '') {
+            this.bodyEditor(this.blocks[0])
+          } else {
+            Scroll() {
+              Column({ space: EDIT_PADDING }) {
+                ForEach(this.blocks, (block: BodyBlock) => {
+                  if (block.imageId === '') {
+                    this.bodyEditor(block)
+                  } else {
+                    Text('图片已保留').fontSize(12).fontColor(this.skin.secondary)
+                      .width('100%').padding(EDIT_PADDING).backgroundColor(this.skin.panel)
+                      .borderRadius(EDIT_INNER_RADIUS)
+                  }
+                }, (block: BodyBlock) => block.id)
+              }.width('100%')
+            }.layoutWeight(1).width('100%').borderRadius(EDIT_INNER_RADIUS).clip(true)
+          }
+        }.layoutWeight(1).width('100%').backgroundColor(this.skin.background)
+        .borderRadius(EDIT_INNER_RADIUS).clip(true)
       }
       if (this.status !== '') {
-        Text(this.status).fontSize(12).fontColor($r('app.color.text_secondary'))
+        Text(this.status).fontSize(11).fontColor(this.skin.secondary).width('100%')
+          .maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis })
+          .padding({ left: 4, right: 4 })
       }
-    }.padding(EDIT_PADDING).width('100%').height('100%').backgroundColor(Color.White)
-    .onAppear(() => this.refreshPreview())
+    }.padding(EDIT_PADDING).width('100%').height('100%').backgroundColor(this.skin.panel)
+    .borderRadius(EDIT_RADIUS).clip(true).onAppear(() => this.refreshPreview())
   }
 }

@@ -71,3 +71,8 @@ SDK 版本信息来自本机已安装 SDK 的声明文件。运行设备的系�
 - 半模态每个会话创建独立 LocalStorage，通过 session.loadContent 注入；页面使用 @Entry({ useSharedStorage: true }) 与 UIContext.getSharedLocalStorage 取得所属会话。SDK19 未提供可依赖的系统完成保存回调，采用常驻先保存提示，输入后标记尚未保存。
 - 皮肤选择面板采用显式底部定位，避免通用 align 属性未按预期布局而遮挡导航。动态背景接收 paused，页面隐藏/编辑/图片覆盖层暂停；原樱花落地停留后淡出。实际长时资源压力尚未测量。
 - 本轮设备验证与未覆盖场景见 integration-2026-11-11.md；UI树和截图在工程忽略的 build/verification，用户数据备份不提交。
+
+## 第二轮原生排版命中与桌面宿主限制
+
+- 浏览态每个正文块保持TextController，ClickEvent组件局部vp通过UIContext.vp2px转换后交给LayoutManager.getGlyphPositionAtCoordinate（API12）；返回UTF-16偏移，不按Unicode码点二次换算，不再叠加Scroll偏移。布局不可用时不猜测字宽，保护代理对边界。真实首击定位与长文位置回归见optimization-round2.md。
+- SDK19不能拦截宿主完成、隐藏宿主标题。UIExtensionContentSession.terminateSelf只结束我们的编辑区，真机宿主预览弹窗仍保留；按钮使用用户确认的“保存并结束编辑”，不可宣称自动关闭整个宿主。取消/系统完成不隐式保存。
