@@ -1,3 +1,4 @@
+import { DynamicSkinView } from '../components/DynamicSkinView';
 import { persistDesktopNote, readDesktopNote, refreshDesktopCards } from '../model/DesktopNoteRepository';
 import { BodyBlock, NoteImage, textBlock, documentText, copyImage } from '../model/NoteDocument';
 import { photoAccessHelper } from '@kit.MediaLibraryKit';
@@ -6,7 +7,7 @@ import { image } from '@kit.ImageKit';
 
 import { GROUP_ALL, GROUP_UNFILED, NOTE_GROUPS, Note } from '../model/Note';
 import { changeNoteSkin, deleteNote, findNote, listNotes, moveNote, NoteEditorParams, saveNote, syncDesktopNotes } from '../model/NoteStore';
-import { findSkin, NOTE_SKINS, NoteSkin } from '../model/NoteSkin';
+import { findSkin, isDynamicSkin, NOTE_SKINS, NoteSkin } from '../model/NoteSkin';
 import { NoteDraft, NoteHistory } from '../model/NoteHistory';
 import { systemShare } from '@kit.ShareKit';
 import { common } from '@kit.AbilityKit';
@@ -815,7 +816,7 @@ struct NoteEditor {
     .padding(EDITOR_PADDING)
     .width('100%')
     .height('100%')
-    .backgroundColor(this.skin().background)
+    .backgroundColor(isDynamicSkin(this.skin()) ? Color.Transparent : this.skin().background)
     .parallelGesture(
       PanGesture({ direction: PanDirection.Vertical, distance: FOLDER_GESTURE_DISTANCE })
         .onActionStart(() => {
@@ -841,6 +842,9 @@ struct NoteEditor {
 
   build() {
     Stack({ alignContent: Alignment.TopEnd }) {
+      if (isDynamicSkin(this.skin())) {
+        DynamicSkinView({ effect: this.skin().effect })
+      }
       this.EditorContent()
       if (this.detailImage !== '') {
         this.ImageDetails()
@@ -860,9 +864,22 @@ struct NoteEditor {
             Row({ space: EDITOR_PADDING }) {
               ForEach(NOTE_SKINS, (skin: NoteSkin) => {
                 Button({ type: ButtonType.Normal }) {
-                  Column() {
+                  Stack() {
+                    if (skin.effect === 'breeze') {
+                      Image($r('app.media.skin_breeze_leaf')).width(70).height(100).opacity(0.22)
+                    } else if (skin.effect === 'sakura') {
+                      Image($r('app.media.skin_sakura_petal')).width(54).height(54).opacity(0.55)
+                    } else if (skin.effect === 'firefly') {
+                      Row({ space: 8 }) {
+                        Circle().width(6).height(6).fill('#F6E58C').opacity(0.9)
+                        Circle().width(4).height(4).fill('#F5EFC8').opacity(0.6)
+                        Circle().width(7).height(7).fill('#F6E58C').opacity(0.75)
+                      }
+                    }
+                    Column() {
                     Text(skin.name).fontSize(BODY_FONT_SIZE).fontColor(skin.text)
                     Text('笔记预览').fontSize(META_FONT_SIZE).fontColor(skin.secondary)
+                    }
                   }
                 }
                 .width(SKIN_CARD_WIDTH)
@@ -946,6 +963,7 @@ struct NoteEditor {
     }
     .width('100%')
     .height('100%')
+    .backgroundColor(this.skin().background)
   }
 
   private settleFolder(): void {
