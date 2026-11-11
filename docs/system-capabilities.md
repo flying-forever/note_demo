@@ -1,5 +1,15 @@
 # 系统能力与兼容性记录
 
+## 技术验证中的能力（未验收）
+
+原生编辑试验新增 RichEditorStyledStringController、StyledString/TextStyle/StyleOptions 和 UIContext.postFrameCallback/FrameCallback.onIdle、LayoutManager.getLineCount，已按本地 API 19 声明构建。StyledString 的字体长度使用 LengthMetrics.vp。帧回调以试验代次忽略过期样本，离页时失效；不读取真实笔记。当前批量方式虽完成编辑功能检查，但高内存和一次 RssThresholdKiller 退出使稳定性不通过；整段控制器路径也未改善密集多段表现。设备内存用 hidumper --mem 采样 PSS，退出类型用 hidumper -e --list 核对。空闲帧回调不等于像素呈现，样本不代表全设备兼容性。详见技术实验室第四轮。
+
+独立 NativeEditorDemo 使用 RichEditorController 与原生选区、片段读取、删除、光标定位及复制/粘贴事件；本地 API 19 声明核对及 ArkTS 构建通过。已记录设备通过四种合成文本场景的控制器选区与系统按键复制/粘贴/删除检查；用户于 2026-11-09 确认当前 10 万字试验的中文预输入、选词、退格及收起键盘正常；手指拖选、无障碍、图片与复杂 Unicode 仍未验证。10 万密集多段逐片段导入约一秒以上，不能作为性能通过记录。默认 enableKeyboardOnFocus(false)，可手动开启键盘，未影响正式编辑器。
+
+独立 DatabaseDemo 已使用 ArkData relationalStore 的 getRdbStore、querySql、RdbPredicates 条件 update、beginTransaction/commit/rollBack 和 close；接口按本地 API 19 声明及 ArkTS 构建核对。本机已记录设备通过分块范围读取、同进程双句柄版本竞争、事务失败回滚、关闭重开和应用进程重启恢复。ResultSet 在 finally 关闭；数据库句柄结束时关闭，运行中防重复提交与返回；异常显示失败。仅使用 tech_demo_stage1.db，不访问正式数据。跨扩展真实并发、损坏/磁盘满和其他系统设备未验收；不将本结果扩大为正式持久化已接通。详情见 technical-demos.md 第二轮记录。
+
+独立长文实验页使用 List、LazyForEach/IDataSource、Scroller.scrollToIndex 和 TextArea。已核对本地目标 SDK 声明，构建及 DMG-W00 上的基础浏览、块跳转、单块命令输入冒烟检查通过；跨块选择、真实输入法、精确定位及性能未验收。设置入口使用 44vp 容器与 LongPressGesture 优先手势，修复原 22vp 区域长按未触发实验入口。数据库独立试验结果见上文，未接入正式存储。详见 [技术实验室](technical-demos.md)。
+
 当前工程目标与兼容 SDK 为 HarmonyOS 5.1.1(19)。新增系统能力时，在此记录接口要求、调用位置、失败处理及验证范围。升级 SDK 或更换设备时，按本表回归验证。
 
 ## 已接入能力

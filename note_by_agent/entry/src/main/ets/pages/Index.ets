@@ -1,4 +1,5 @@
 import { NoteCard } from '../components/NoteCard';
+import { TECH_DEMOS_ENABLED } from '../diagnostics/DemoCatalog';
 import { GROUP_ALL, GROUP_UNFILED, NOTE_GROUPS, Note, noteCardTitle } from '../model/Note';
 import { listNotes, NoteEditorParams, syncDesktopNotes, findNote } from '../model/NoteStore';
 
@@ -157,12 +158,23 @@ struct Index {
     Stack({ alignContent: Alignment.Center }) {
       Row() {
         Blank()
-        Image($r('app.media.ic_settings'))
-          .width(22)
-          .height(22)
+        Row() {
+          Image($r('app.media.ic_settings'))
+            .width(22)
+            .height(22)
+        }
+          .width(44)
+          .height(44)
+          .justifyContent(FlexAlign.Center)
           .onClick(() => {
             this.getUIContext().getPromptAction().showToast({ message: '设置页待实现' });
           })
+          .priorityGesture(LongPressGesture().onAction(() => {
+            if (TECH_DEMOS_ENABLED) {
+              this.getUIContext().getRouter().pushUrl({ url: 'pages/TechDemos' })
+                .catch(() => this.getUIContext().getPromptAction().showToast({ message: '无法打开技术实验室' }));
+            }
+          }))
       }
       .width('100%')
       .height(46)

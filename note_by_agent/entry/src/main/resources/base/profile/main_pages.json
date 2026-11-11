@@ -3,6 +3,10 @@
     "pages/Index",
     "pages/NoteEditor",
     "pages/NoteDesktop",
-    "pages/DesktopNoteEdit"
+    "pages/DesktopNoteEdit",
+    "pages/TechDemos",
+    "pages/LongDocumentDemo",
+    "pages/DatabaseDemo",
+    "pages/NativeEditorDemo"
   ]
 }
