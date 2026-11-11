@@ -69,4 +69,4 @@ node scripts/test-long-document.cjs
 - 当前任务要求只写项目时，截图、UI树、备份和临时结果写入忽略的 note_by_agent/build/verification；旧实验脚本可能使用系统临时目录，运行前核对，不把历史脚本当作当前任务权限授权。
 - 个人数据备份、设备日志和临时缓存不提交 Git。历史报告记录的验证只对当时版本和范围有效，不自动代表当前版本全通过。
 - DevEco Git 映射只应包含当前仓库；若编辑器不显示变更，检查 note_by_agent/.idea/vcs.xml 是否仍引用旧的内层仓库。
-- 工作区迁移后的 Windows ACL 不一致与命令审批是两层问题。项目曾补齐当前沙箱身份权限；后续遇拒绝访问先核对令牌与ACL，不直接放宽整个磁盘权限。
+- 工作区文件拒绝访问、Git无法替换文件或构建日志EPERM时，见[Windows工作区权限排查](troubleshooting/windows-workspace-permissions.md)。先核对令牌与ACL，不直接放宽整个磁盘权限。
