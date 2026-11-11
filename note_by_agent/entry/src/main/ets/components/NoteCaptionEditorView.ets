@@ -1,3 +1,4 @@
+// 提供图片描述编辑弹层，并回传确认或取消操作。
 const PANEL_PADDING: number = 16;
 const PANEL_RADIUS: number = 20;
 

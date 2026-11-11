@@ -1,3 +1,4 @@
+// 验证原生富文本编辑器的跨片段选区、删除与复制粘贴行为。
 import { DemoStyle, TECH_DEMOS_ENABLED } from '../diagnostics/DemoCatalog';
 import { DemoChunk, fixtureText, splitDemoText } from '../diagnostics/LongDocumentFixture';
 import { DemoFrameProbe } from '../diagnostics/DemoFrameProbe';

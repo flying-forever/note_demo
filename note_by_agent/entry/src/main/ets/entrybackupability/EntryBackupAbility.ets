@@ -1,3 +1,4 @@
+// 接收系统备份与恢复生命周期回调并记录日志。
 import { hilog } from '@kit.PerformanceAnalysisKit';
 import { BackupExtensionAbility, BundleVersion } from '@kit.CoreFileKit';
 

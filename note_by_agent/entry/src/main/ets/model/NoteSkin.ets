@@ -1,3 +1,4 @@
+// 定义笔记皮肤配色与动态效果，并提供查找和动态皮肤判定。
 export interface NoteSkin {
   id: string;
   name: string;

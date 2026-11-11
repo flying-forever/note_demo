@@ -1,3 +1,4 @@
+// 根据皮肤效果选择动态背景组件，并统一传递暂停状态。
 import { BreezeSkinView } from './BreezeSkinView';
 import { FireflySkinView } from './FireflySkinView';
 import { SakuraSkinView } from './SakuraSkinView';

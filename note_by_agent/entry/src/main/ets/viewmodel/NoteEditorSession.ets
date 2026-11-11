@@ -1,3 +1,4 @@
+// 管理编辑草稿、光标、图片与撤销重做状态，并跟踪未保存改动。
 import { BodyBlock, NoteImage, textBlock, documentText, copyImage } from '../model/NoteDocument';
 import { Note } from '../model/Note';
 import { NoteDraft, NoteHistory } from '../model/NoteHistory';

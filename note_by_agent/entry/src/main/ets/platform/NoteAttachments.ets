@@ -1,3 +1,4 @@
+// 导入图片到应用私有目录并读取元数据，清理不再引用的附件。
 import { fileIo as fs } from '@kit.CoreFileKit';
 import { image } from '@kit.ImageKit';
 import { NoteImage } from '../model/NoteDocument';

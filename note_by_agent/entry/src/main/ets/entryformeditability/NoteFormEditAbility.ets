@@ -1,3 +1,4 @@
+// 创建桌面卡片编辑会话，并装载编辑页与预览数据。
 import { createDesktopEditStorage } from '../model/DesktopEditStorage';
 import { FormEditExtensionAbility, formBindingData, formProvider } from '@kit.FormKit';
 import { UIExtensionContentSession, Want } from '@kit.AbilityKit';

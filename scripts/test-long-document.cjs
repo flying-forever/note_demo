@@ -1,3 +1,4 @@
+// 验证长文试验数据的分块完整性、边界安全与懒加载数据源。
 const fs = require('node:fs');
 const path = require('node:path');
 const vm = require('node:vm');

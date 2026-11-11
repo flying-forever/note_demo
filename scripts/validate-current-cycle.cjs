@@ -1,3 +1,4 @@
+// 通过设备界面操作回归检查首页与长文实验的当前交互流程。
 const fs = require('node:fs');
 const path = require('node:path');
 const cp = require('node:child_process');

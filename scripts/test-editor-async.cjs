@@ -1,3 +1,4 @@
+// 通过延迟异步结果模拟编辑场景，回归验证编辑器状态与竞态处理。
 const fs = require('node:fs');
 const path = require('node:path');
 const vm = require('node:vm');

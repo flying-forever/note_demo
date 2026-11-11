@@ -1,3 +1,4 @@
+// 定义笔记结构、分组与演示数据，并生成卡片显示标题。
 import { BodyBlock, NoteImage } from './NoteDocument';
 
 export interface Note {

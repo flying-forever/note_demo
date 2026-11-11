@@ -1,3 +1,4 @@
+// 为桌面编辑页封装卡片标识、预览标识与扩展会话的共享存储。
 import { UIExtensionContentSession } from '@kit.AbilityKit';
 
 export function createDesktopEditStorage(formId: string, previewFormId: string,

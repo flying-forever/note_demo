@@ -1,3 +1,4 @@
+// 按笔记皮肤展示列表卡片的标题、摘要与时间。
 import { findSkin } from '../model/NoteSkin';
 
 @Component

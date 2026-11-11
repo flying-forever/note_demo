@@ -1,3 +1,4 @@
+// 预览笔记桌面卡片，并通过系统入口添加卡片和绑定笔记。
 import { AddFormMenuItem } from '@kit.ArkUI';
 import { formBindingData } from '@kit.FormKit';
 import { BusinessError } from '@kit.BasicServicesKit';

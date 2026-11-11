@@ -1,3 +1,4 @@
+// 注册设备侧测试示例，验证字符串包含断言。
 import { hilog } from '@kit.PerformanceAnalysisKit';
 import { describe, beforeAll, beforeEach, afterEach, afterAll, it, expect } from '@ohos/hypium';
 

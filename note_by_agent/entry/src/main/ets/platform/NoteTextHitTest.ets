@@ -1,3 +1,4 @@
+// 通过文字布局命中坐标计算光标位置，并校验结果边界。
 export function noteTextCaret(text: string, controller: TextController | undefined,
   localXPx: number, localYPx: number): number | undefined {
   if (text.length === 0) { return 0; }

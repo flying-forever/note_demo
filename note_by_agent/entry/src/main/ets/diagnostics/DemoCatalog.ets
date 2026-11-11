@@ -1,3 +1,4 @@
+// 集中定义技术实验入口、功能开关与共用布局参数。
 export interface DemoEntry {
   id: string;
   title: string;

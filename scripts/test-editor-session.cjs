@@ -1,3 +1,4 @@
+// 回归验证编辑会话的输入合并、撤销重做、图片与脏状态跟踪。
 const fs = require('node:fs');
 const path = require('node:path');
 const vm = require('node:vm');

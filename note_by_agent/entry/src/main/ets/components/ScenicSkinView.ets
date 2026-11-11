@@ -1,3 +1,4 @@
+// 绘制极光、雨滴、潮汐、晨光与星轨等可暂停的动态背景。
 const START_DELAY: number = 100;
 
 @Component

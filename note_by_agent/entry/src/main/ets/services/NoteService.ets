@@ -1,3 +1,4 @@
+// 统一处理笔记保存、冲突检测、移动、换肤与删除业务。
 import { Note } from '../model/Note';
 import { BodyBlock, NoteImage, documentText, textBlock, copyImage } from '../model/NoteDocument';
 import { findNote, commitNote, removeNote } from '../repository/NoteRepository';

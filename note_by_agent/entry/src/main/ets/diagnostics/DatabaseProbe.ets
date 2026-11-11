@@ -1,3 +1,4 @@
+// 在独立试验库验证分块读取、版本竞争、事务回滚与重开恢复。
 import { relationalStore } from '@kit.ArkData';
 import { common } from '@kit.AbilityKit';
 import { DemoChunk, fixtureText, splitDemoText } from './LongDocumentFixture';

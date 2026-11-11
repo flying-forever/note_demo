@@ -1,3 +1,4 @@
+// 展示皮肤预览与选中状态，并回传用户选择的皮肤。
 import { NOTE_SKINS, NoteSkin } from '../model/NoteSkin';
 
 const CARD_WIDTH: number = 96;

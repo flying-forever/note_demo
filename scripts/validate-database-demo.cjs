@@ -1,3 +1,4 @@
+// 通过设备界面运行数据库实验，并核对执行和恢复验证结果。
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');

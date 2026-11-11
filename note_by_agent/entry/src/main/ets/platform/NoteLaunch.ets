@@ -1,3 +1,4 @@
+// 从启动参数或卡片绑定关系解析需要打开的笔记标识。
 import { Want } from '@kit.AbilityKit';
 import { formInfo } from '@kit.FormKit';
 import { desktopLink } from '../repository/DesktopNoteRepository';

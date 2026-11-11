@@ -1,3 +1,4 @@
+// 绘制夜色星光与萤火虫漂移动画，并随组件生命周期启停。
 const ANIMATION_START_DELAY: number = 100;
 
 interface StarSpec {

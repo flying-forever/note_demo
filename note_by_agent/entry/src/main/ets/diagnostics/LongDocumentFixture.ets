@@ -1,3 +1,4 @@
+// 生成长文试验数据，安全分块并提供懒加载数据源。
 export interface DemoChunk {
   id: string;
   text: string;

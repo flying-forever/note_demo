@@ -1,3 +1,4 @@
+// 在桌面卡片扩展会话中编辑笔记，校验保存冲突并刷新预览。
 import { UIExtensionContentSession } from '@kit.AbilityKit';
 import { formBindingData, formProvider } from '@kit.FormKit';
 import { BodyBlock, textBlock } from '../model/NoteDocument';

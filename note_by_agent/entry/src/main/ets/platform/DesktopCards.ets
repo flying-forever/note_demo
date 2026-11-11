@@ -1,3 +1,4 @@
+// 生成桌面卡片展示数据，并按卡片或笔记刷新系统卡片。
 import { formBindingData, formProvider } from '@kit.FormKit';
 import { hilog } from '@kit.PerformanceAnalysisKit';
 import { Note, noteCardTitle } from '../model/Note';

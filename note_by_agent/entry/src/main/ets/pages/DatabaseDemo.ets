@@ -1,3 +1,4 @@
+// 提供数据库实验的运行入口，并展示各项验证结果。
 import { common } from '@kit.AbilityKit';
 import { DemoStyle, TECH_DEMOS_ENABLED } from '../diagnostics/DemoCatalog';
 import { DatabaseProbeResult, runDatabaseProbe } from '../diagnostics/DatabaseProbe';

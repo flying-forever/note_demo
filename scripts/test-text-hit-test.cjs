@@ -1,3 +1,4 @@
+// 模拟文字布局接口，验证坐标命中与光标边界处理。
 const fs = require('node:fs');
 const path = require('node:path');
 const vm = require('node:vm');

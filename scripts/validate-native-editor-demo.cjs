@@ -1,3 +1,4 @@
+// 通过设备操作验证原生编辑器选区与编辑行为，并采集内存信息。
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');

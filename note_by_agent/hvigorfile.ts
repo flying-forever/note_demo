@@ -1,3 +1,4 @@
+// 注册应用级构建任务与扩展插件。
 import { appTasks } from '@ohos/hvigor-ohos-plugin';
 
 export default {

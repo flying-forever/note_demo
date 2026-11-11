@@ -1,3 +1,4 @@
+// 模拟文件与卡片接口，回归验证桌面笔记存储、绑定和保存冲突。
 const fs = require('node:fs');
 const path = require('node:path');
 const vm = require('node:vm');

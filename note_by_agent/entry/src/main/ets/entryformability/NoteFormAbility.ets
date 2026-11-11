@@ -1,3 +1,4 @@
+// 处理桌面卡片的创建、刷新与移除，并维护笔记绑定关系。
 import { FormExtensionAbility, formBindingData, formInfo } from '@kit.FormKit';
 import { Want } from '@kit.AbilityKit';
 import { initializeDesktopRepository, bindDesktopForm, readDesktopNote,

@@ -1,3 +1,4 @@
+// 定义正文文本块与图片元数据，并提供文本导出和图片复制方法。
 export interface BodyBlock {
   id: string;
   text: string;

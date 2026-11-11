@@ -1,3 +1,4 @@
+// 展示已注册的技术实验项目，并导航到对应实验页面。
 import { DEMO_CATALOG, DemoEntry, DemoStyle, TECH_DEMOS_ENABLED } from '../diagnostics/DemoCatalog';
 
 @Entry

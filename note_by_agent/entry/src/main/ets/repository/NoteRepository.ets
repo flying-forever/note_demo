@@ -1,3 +1,4 @@
+// 管理内存笔记列表，并同步和选择性持久化桌面笔记。
 import { FAKE_NOTES, Note } from '../model/Note';
 import { listDesktopRecords, readDesktopRecord, persistDesktopNote, deleteDesktopNote } from './DesktopNoteRepository';
 

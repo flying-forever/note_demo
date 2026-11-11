@@ -1,3 +1,4 @@
+// 绑定桌面卡片数据并展示笔记，点击时请求打开对应笔记。
 import { DesktopNoteView } from '../../components/DesktopNoteView';
 
 const widgetStorage: LocalStorage = new LocalStorage();

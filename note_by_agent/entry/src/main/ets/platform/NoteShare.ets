@@ -1,3 +1,4 @@
+// 将笔记标题与正文交给系统分享面板，并管理面板状态。
 import { systemShare } from '@kit.ShareKit';
 import { common } from '@kit.AbilityKit';
 import { uniformTypeDescriptor } from '@kit.ArkData';

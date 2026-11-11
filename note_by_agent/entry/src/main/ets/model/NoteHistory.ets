@@ -1,3 +1,4 @@
+// 管理草稿撤销与重做历史，并按输入间隔与编辑字段合并记录。
 export interface NoteDraft {
   title: string;
   content: string;

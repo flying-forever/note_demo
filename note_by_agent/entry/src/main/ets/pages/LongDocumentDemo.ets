@@ -1,3 +1,4 @@
+// 对比长文整篇输入与分块懒加载，并验证位置跳转和文本一致性。
 import { DemoStyle, TECH_DEMOS_ENABLED } from '../diagnostics/DemoCatalog';
 import { DemoChunk, DemoChunkSource, fixtureChunks, fixtureText } from '../diagnostics/LongDocumentFixture';
 

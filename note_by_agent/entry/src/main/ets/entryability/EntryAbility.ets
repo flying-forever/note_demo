@@ -1,3 +1,4 @@
+// 初始化笔记存储与主窗口，并处理桌面卡片启动请求。
 import { initializeDesktopRepository } from '../repository/DesktopNoteRepository';
 import { syncDesktopNotes } from '../repository/NoteRepository';
 import { desktopLaunchNoteId } from '../platform/NoteLaunch';

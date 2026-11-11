@@ -1,3 +1,4 @@
+// 绘制循环飘落的樱花花瓣，并管理动画阶段与定时器。
 const ANIMATION_START_DELAY: number = 100;
 
 interface PetalSpec {

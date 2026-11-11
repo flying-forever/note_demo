@@ -1,3 +1,4 @@
+// 按卡片配色展示桌面笔记的标题与正文摘要。
 const CARD_PADDING: number = 16;
 const CARD_TITLE_SIZE: number = 18;
 const CARD_BODY_SIZE: number = 14;

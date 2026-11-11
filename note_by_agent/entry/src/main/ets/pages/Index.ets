@@ -1,3 +1,4 @@
+// 展示笔记分组与双列卡片列表，并处理页头滚动和编辑页跳转。
 import { NoteCard } from '../components/NoteCard';
 import { router } from '@kit.ArkUI';
 import { TECH_DEMOS_ENABLED } from '../diagnostics/DemoCatalog';

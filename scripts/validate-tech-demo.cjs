@@ -1,3 +1,4 @@
+// 通过设备界面回归检查长文实验场景、位置定位与输入交互。
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');

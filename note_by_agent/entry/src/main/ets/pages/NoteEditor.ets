@@ -1,3 +1,4 @@
+// 承载笔记浏览与编辑，协调图片、历史、换肤、分享及保存交互。
 import { NoteSkinPickerView } from '../components/NoteSkinPickerView';
 import { NoteCaptionEditorView } from '../components/NoteCaptionEditorView';
 import { DynamicSkinView } from '../components/DynamicSkinView';

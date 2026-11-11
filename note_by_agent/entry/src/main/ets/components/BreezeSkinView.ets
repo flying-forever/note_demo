@@ -1,3 +1,4 @@
+// 绘制随窗口缩放的树叶背景，并控制微风摇摆动画的启停。
 const LEAF_ASPECT: number = 4 / 3;
 const LEAF_WINDOW_RATIO: number = 0.48;
 const LEAF_HEIGHT_LIMIT: number = 0.62;

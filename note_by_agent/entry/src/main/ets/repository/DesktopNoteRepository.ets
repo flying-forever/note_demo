@@ -1,3 +1,4 @@
+// 以 JSON 文件保存桌面笔记、删除标记与卡片绑定关系。
 import { fileIo as fs } from '@kit.CoreFileKit';
 import { Note } from '../model/Note';
 
