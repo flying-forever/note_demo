@@ -6,6 +6,8 @@ const ANIMATION_START_DELAY: number = 100;
 
 @Component
 export struct BreezeSkinView {
+  @Prop @Watch('syncMotion') paused: boolean = false;
+  @State private visible: boolean = false;
   @State private swaying: boolean = false;
   @State private leafWidth: number = 170;
   @State private windowWidth: number = 0;
@@ -13,13 +15,27 @@ export struct BreezeSkinView {
   private startTimer: number = -1;
 
   aboutToAppear(): void {
-    this.startTimer = setTimeout(() => {
-      this.swaying = true;
-    }, ANIMATION_START_DELAY);
+    this.visible = true;
+    this.syncMotion();
   }
 
   aboutToDisappear(): void {
+    this.visible = false;
     clearTimeout(this.startTimer);
+    this.startTimer = -1;
+    this.swaying = false;
+  }
+
+  private syncMotion(): void {
+    clearTimeout(this.startTimer);
+    this.startTimer = -1;
+    this.swaying = false;
+    if (this.visible && !this.paused) {
+      this.startTimer = setTimeout(() => {
+        this.startTimer = -1;
+        this.swaying = true;
+      }, ANIMATION_START_DELAY);
+    }
   }
 
   build() {
@@ -28,18 +44,18 @@ export struct BreezeSkinView {
         .width(this.leafWidth).height(this.leafWidth * LEAF_ASPECT)
         .renderGroup(true)
         .opacity(0.16)
+        .position({ x: this.windowWidth - this.leafWidth * 0.8, y: -this.leafWidth * 0.17 })
         .animation(null)
         .rotate({ angle: this.swaying ? 12 : -8, centerX: '50%', centerY: '100%' })
-        .animation({ duration: SWAY_DURATION, curve: Curve.EaseInOut, iterations: -1, playMode: PlayMode.Alternate })
-        .position({ x: this.windowWidth - this.leafWidth * 0.8, y: -this.leafWidth * 0.17 })
+        .animation(this.paused || !this.visible ? null : { duration: SWAY_DURATION, curve: Curve.EaseInOut, iterations: -1, playMode: PlayMode.Alternate })
       Image($r('app.media.skin_breeze_leaf'))
         .width(this.leafWidth).height(this.leafWidth * LEAF_ASPECT)
         .renderGroup(true)
         .opacity(0.12)
+        .position({ x: -this.leafWidth * 0.26, y: this.windowHeight - this.leafWidth * (LEAF_ASPECT - 0.2) })
         .animation(null)
         .rotate({ angle: this.swaying ? -16 : 4, centerX: '50%', centerY: '100%' })
-        .animation({ duration: SWAY_DURATION + 1400, curve: Curve.EaseInOut, iterations: -1, playMode: PlayMode.Alternate })
-        .position({ x: -this.leafWidth * 0.26, y: this.windowHeight - this.leafWidth * (LEAF_ASPECT - 0.2) })
+        .animation(this.paused || !this.visible ? null : { duration: SWAY_DURATION + 1400, curve: Curve.EaseInOut, iterations: -1, playMode: PlayMode.Alternate })
     }
     .width('100%').height('100%')
     .onAreaChange((_oldArea: Area, area: Area) => {

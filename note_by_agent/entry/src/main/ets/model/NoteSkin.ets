@@ -15,6 +15,11 @@ export const NOTE_SKINS: NoteSkin[] = [
   { id: 'breeze', name: '微风树叶', background: '#F1F4E8', text: '#293D30', secondary: '#687B64', panel: '#E4EBD8', effect: 'breeze' },
   { id: 'sakura', name: '樱落微风', background: '#FDF3F4', text: '#452B31', secondary: '#8A6A72', panel: '#F6E2E7', effect: 'sakura' },
   { id: 'firefly', name: '星夜萤火', background: '#101A2E', text: '#F2EEDC', secondary: '#A9B4C8', panel: '#1E2C47', effect: 'firefly' },
+  { id: 'aurora', name: '极光漫游', background: '#171B35', text: '#EDF7F4', secondary: '#B4C6D4', panel: '#29334D', effect: 'aurora' },
+  { id: 'rain', name: '雨窗听声', background: '#E9EFF4', text: '#243744', secondary: '#5B7182', panel: '#D5E1EA', effect: 'rain' },
+  { id: 'tide', name: '晴海潮汐', background: '#E8F6F4', text: '#173F43', secondary: '#527A7E', panel: '#CFE9E6', effect: 'tide' },
+  { id: 'dawn', name: '晨曦流金', background: '#FFF1DD', text: '#503721', secondary: '#806448', panel: '#F5DFC0', effect: 'dawn' },
+  { id: 'orbit', name: '星轨漫游', background: '#171B2C', text: '#EFF0FA', secondary: '#B8BDD5', panel: '#2A3048', effect: 'orbit' },
   { id: 'blue', name: '深蓝', background: '#173458', text: '#F4F7FC', secondary: '#BCCBE0', panel: '#25476E', effect: 'none' }
 ];
 

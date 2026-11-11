@@ -41,17 +41,33 @@ const FIREFLIES: FireflySpec[] = [
 
 @Component
 export struct FireflySkinView {
+  @Prop @Watch('syncMotion') paused: boolean = false;
+  @State private visible: boolean = false;
   @State private active: boolean = false;
   private startTimer: number = -1;
 
   aboutToAppear(): void {
-    this.startTimer = setTimeout(() => {
-      this.active = true;
-    }, ANIMATION_START_DELAY);
+    this.visible = true;
+    this.syncMotion();
   }
 
   aboutToDisappear(): void {
+    this.visible = false;
     clearTimeout(this.startTimer);
+    this.startTimer = -1;
+    this.active = false;
+  }
+
+  private syncMotion(): void {
+    clearTimeout(this.startTimer);
+    this.startTimer = -1;
+    this.active = false;
+    if (this.visible && !this.paused) {
+      this.startTimer = setTimeout(() => {
+        this.startTimer = -1;
+        this.active = true;
+      }, ANIMATION_START_DELAY);
+    }
   }
 
   build() {
@@ -72,7 +88,7 @@ export struct FireflySkinView {
           .position({ x: star.x, y: star.y })
           .animation(null)
           .opacity(this.active ? 0.9 : 0.2)
-          .animation({
+          .animation(this.paused || !this.visible ? null : {
             duration: star.duration,
             delay: star.delay,
             curve: Curve.EaseInOut,
@@ -91,7 +107,7 @@ export struct FireflySkinView {
           .animation(null)
           .opacity(this.active ? 0.95 : 0.25)
           .translate({ x: this.active ? fly.driftX : 0, y: this.active ? fly.driftY : 0 })
-          .animation({
+          .animation(this.paused || !this.visible ? null : {
             duration: fly.duration,
             delay: fly.delay,
             curve: Curve.EaseInOut,
