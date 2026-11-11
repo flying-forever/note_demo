@@ -2,7 +2,7 @@ import { AddFormMenuItem } from '@kit.ArkUI';
 import { formBindingData } from '@kit.FormKit';
 import { BusinessError } from '@kit.BasicServicesKit';
 import { DesktopNoteView } from '../components/DesktopNoteView';
-import { NoteEditorParams } from '../model/NoteStore';
+import { NoteEditorParams } from '../services/NoteService';
 import { readDesktopNote, bindDesktopForm } from '../repository/DesktopNoteRepository';
 import { desktopCardData, DesktopCardData, refreshDesktopForm } from '../platform/DesktopCards';
 

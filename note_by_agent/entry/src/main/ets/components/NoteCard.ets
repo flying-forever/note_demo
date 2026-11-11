@@ -1,8 +1,11 @@
+import { findSkin } from '../model/NoteSkin';
+
 @Component
 export struct NoteCard {
   @Prop title: string = '';
   @Prop summary: string = '';
   @Prop timeLabel: string = '';
+  @Prop skinId: string = 'white';
 
   build() {
     Column() {
@@ -10,13 +13,13 @@ export struct NoteCard {
         Text(this.title)
           .fontSize(16)
           .fontWeight(FontWeight.Medium)
-          .fontColor($r('app.color.text_primary'))
+          .fontColor(findSkin(this.skinId).text)
           .maxLines(2)
           .textOverflow({ overflow: TextOverflow.Ellipsis })
           .width('100%')
         Text(this.summary)
           .fontSize(13)
-          .fontColor($r('app.color.text_secondary'))
+          .fontColor(findSkin(this.skinId).secondary)
           .lineHeight(19)
           .maxLines(4)
           .textOverflow({ overflow: TextOverflow.Ellipsis })
@@ -28,7 +31,7 @@ export struct NoteCard {
 
       Text(this.timeLabel)
         .fontSize(11)
-        .fontColor($r('app.color.text_tertiary'))
+        .fontColor(findSkin(this.skinId).secondary)
         .width('100%')
         .margin({ top: 12 })
     }
@@ -37,7 +40,7 @@ export struct NoteCard {
     .padding(14)
     .constraintSize({ minHeight: 150 })
     .width('100%')
-    .backgroundColor($r('app.color.card_bg'))
+    .backgroundColor(findSkin(this.skinId).background)
     .borderRadius(12)
   }
 }

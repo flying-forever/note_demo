@@ -21,6 +21,14 @@ export const GROUP_ALL: string = '全部';
 export const GROUP_UNFILED: string = '未分类';
 export const NOTE_GROUPS: string[] = ['全部', '旅途', '美食', '攻略', '随记', GROUP_UNFILED];
 
+function longNoteText(): string {
+  const paragraphs: string[] = [];
+  for (let index: number = 1; index <= 100; index++) {
+    paragraphs.push(`第${index}段：沿着山间小路慢慢走，记下今天的风景与想法。浏览到这里再点正文，检查进入编辑后的位置；返回浏览时核对文字和滚动。`);
+  }
+  return paragraphs.join('\n\n');
+}
+
 export const FAKE_NOTES: Note[] = [
   {
     id: 'n01',
@@ -175,5 +183,12 @@ export const FAKE_NOTES: Note[] = [
     content: '下班路上记得取快递，顺便买一盒牛奶。',
     timeLabel: '10月19日 18:30',
     group: ''
+  },
+  {
+    id: 'demo-long-scroll',
+    title: '长笔记滚动测试',
+    content: longNoteText(),
+    timeLabel: '测试样例',
+    group: '随记'
   }
 ];

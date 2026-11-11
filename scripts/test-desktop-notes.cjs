@@ -60,10 +60,10 @@ function application() {
     });
     return exports;
   }
-  const repository = load('DesktopNoteRepository');
+  const repository = load('../repository/DesktopNoteRepository');
   repository.initializeDesktopRepository(temporary);
   const cards = load('../platform/DesktopCards');
-  const store = load('NoteStore');
+  const store = { ...load('../repository/NoteRepository'), ...load('../services/NoteService') };
   store.syncDesktopNotes();
   return { repository, cards, store };
 }

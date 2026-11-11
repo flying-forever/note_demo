@@ -2,7 +2,7 @@
 
 ## 当前实现
 
-`model/Note.ets` 使用 `id`、`title`、`content`、`timeLabel`、`group`。首页从正文生成卡片预览，初始时间沿用假数据的展示文本。`model/NoteStore.ets` 管理进程内数据，编辑页持有独立草稿。
+`model/Note.ets` 使用 `id`、`title`、`content`、`timeLabel`、`group`。首页从正文生成卡片预览，初始时间沿用假数据的展示文本。`repository/NoteRepository.ets` 管理进程内已提交数据，`services/NoteService.ets` 统一业务保存，`viewmodel/NoteEditorSession.ets` 持有主编辑页唯一草稿及历史。原 NoteStore 与 model 层 DesktopNoteRepository 转发入口已移除。
 
 可选字段 `skinId` 保存笔记皮肤标识，缺失或未知时按默认白显示。`model/NoteSkin.ets` 集中定义皮肤配色，供后续接入素材。移动文件夹及保存正文保留皮肤设置。
 
@@ -20,7 +20,9 @@
 
 桌面卡片 ID 按 string 保存，避免 64 位整数精度损失。forms 下每张卡片有独立关联文件，支持多张卡片引用同一笔记。保存、移动、换肤后刷新相关卡片；移除卡片只删除关联，保留笔记。删除笔记写入删除标记，防止同 ID 的假数据在重启后重新出现，并把相关卡片刷新为删除状态。
 
-应用启动及回到前台时从磁盘同步桌面笔记，供 UIAbility、FormExtensionAbility 与 FormEditExtensionAbility 共享数据。半模态编辑保存前比较打开时的记录快照，发现外部修改则拒绝覆盖并提示重新打开；主编辑页回到前台时同步外部修改，有未保存草稿时让用户选择版本。
+应用启动及回到前台时从磁盘同步桌面笔记，供 UIAbility、FormExtensionAbility 与 FormEditExtensionAbility 共享数据。主编辑与半模态通过 saveNoteDraft 保存，使用固定字段顺序的 snapshotNote 快照检查，返回 saved、empty、conflict、deleted 或 storageError。外部更新或删除不能被旧草稿静默覆盖；主编辑页回到前台时有未保存草稿则让用户选择版本。快照比较仍为尽力检测，不提供跨进程事务保证。
+
+每次写入使用独立临时文件，避免固定 .tmp 互相踩写；唯一文件名不等于原子并发控制。卡片配色和 FormKit 更新位于 platform/DesktopCards，存储仓库不依赖展示或系统通知；已成功保存不因卡片刷新失败回滚。
 
 数据层回归命令：`node scripts/test-desktop-notes.cjs`。脚本使用本机 DevEco 的 TypeScript 编译器；其他环境通过 DEVECO_TYPESCRIPT_PATH 指定 typescript.js。该检查验证选择性保存、应用重启、图片引用、移动/皮肤、写入失败、跨实例更新、多卡片与删除标记，UI 和系统能力仍需真机验收。
 

@@ -1,22 +1,28 @@
+import { NoteSkinPickerView } from '../components/NoteSkinPickerView';
+import { NoteCaptionEditorView } from '../components/NoteCaptionEditorView';
 import { DynamicSkinView } from '../components/DynamicSkinView';
-import { persistDesktopNote, readDesktopNote, refreshDesktopCards } from '../model/DesktopNoteRepository';
+import { readDesktopNote, readDesktopRecord } from '../repository/DesktopNoteRepository';
+import { saveNoteDraft, snapshotNote, isBlankNote } from '../services/NoteService';
 import { BodyBlock, NoteImage, textBlock, documentText, copyImage } from '../model/NoteDocument';
 import { photoAccessHelper } from '@kit.MediaLibraryKit';
-import { fileIo as fs } from '@kit.CoreFileKit';
-import { image } from '@kit.ImageKit';
 
 import { GROUP_ALL, GROUP_UNFILED, NOTE_GROUPS, Note } from '../model/Note';
-import { changeNoteSkin, deleteNote, findNote, listNotes, moveNote, NoteEditorParams, saveNote, syncDesktopNotes } from '../model/NoteStore';
-import { findSkin, isDynamicSkin, NOTE_SKINS, NoteSkin } from '../model/NoteSkin';
-import { NoteDraft, NoteHistory } from '../model/NoteHistory';
-import { systemShare } from '@kit.ShareKit';
+import { changeNoteSkin, deleteNote, moveNote, NoteEditorParams } from '../services/NoteService';
+import { findNote, listNotes, syncDesktopNotes } from '../repository/NoteRepository';
+import { findSkin, isDynamicSkin, NoteSkin } from '../model/NoteSkin';
+import { NoteEditorSession } from '../viewmodel/NoteEditorSession';
+import { importNoteImage, releaseUnusedImages } from '../platform/NoteAttachments';
+import { NoteShare } from '../platform/NoteShare';
 import { common } from '@kit.AbilityKit';
-import { uniformTypeDescriptor } from '@kit.ArkData';
 
 const EDITOR_PADDING: number = 16;
 const TITLE_FONT_SIZE: number = 26;
 const BODY_FONT_SIZE: number = 17;
 const BODY_INPUT_VERTICAL_PADDING: number = 6;
+const BODY_LINE_HEIGHT: number = 26;
+const TITLE_LINE_HEIGHT: number = 40;
+const SKIN_PANEL_HEIGHT: number = 162;
+const SCROLL_RESTORE_DELAY: number = 60;
 const META_FONT_SIZE: number = 13;
 const NAV_ICON_SIZE: number = 24;
 const TITLE_INPUT_ID: string = 'note-editor-title';
@@ -31,9 +37,6 @@ const FOLDER_HEIGHT: number = 40;
 const SETTLE_DURATION: number = 180;
 const NAV_BUTTON_SIZE: number = 44;
 const NAV_SPACING: number = 8;
-const SKIN_CARD_WIDTH: number = 96;
-const SKIN_CARD_HEIGHT: number = 130;
-const SKIN_SELECTED_COLOR: string = '#FFC107';
 const IMAGE_SMALL_WIDTH: string = '50%';
 const IMAGE_ACTION_HEIGHT: number = 48;
 const IMAGE_ACTIONS: string[] = ['描述', '尺寸', '详情', '删除图片'];
@@ -43,16 +46,18 @@ const FOLDER_OPTIONS: string[] = NOTE_GROUPS.filter((group: string) => group !==
 @Entry
 @Component
 struct NoteEditor {
-  @State private title: string = '';
-  @State private content: string = '';
+  @StorageLink('desktopEditorRequest') @Watch('refreshDesktopTarget') private desktopEditorRequest: string = '';
+  @State private session: NoteEditorSession = new NoteEditorSession();
+  private disposed: boolean = false;
+  private sessionGeneration: number = 0;
+  private deletionPromptVisible: boolean = false;
+  @State private pageVisible: boolean = true;
+  private scrollRestoreTimer: number = -1;
+  private savedBodyOffset: number = 0;
+  private inputControllers: Map<string, TextAreaController> = new Map();
   @State private editing: boolean = false;
   @State private skinId: string = 'white';
   @State private skinPickerVisible: boolean = false;
-  @State private canUndo: boolean = false;
-  @State private canRedo: boolean = false;
-  private history: NoteHistory = new NoteHistory('', '');
-  @State private blocks: BodyBlock[] = [];
-  @State private images: NoteImage[] = [];
   @State private selectedImage: string = '';
   @State private detailImage: string = '';
   @State private captionVisible: boolean = false;
@@ -60,22 +65,11 @@ struct NoteEditor {
   @State private pickingImage: boolean = false;
   @State private zoom: number = 1;
   private zoomStart: number = 1;
-  private activeBlock: string = '';
-  private caret: number = 0;
-  private originalDocument: string = '';
-  private originalImages: string = '';
-  private pastePending: boolean = false;
-  private shareController?: systemShare.ShareController;
-  private sharing: boolean = false;
-  private shareDismissCallback = (): void => {
-    this.sharing = false;
-    this.shareController?.off('dismiss', this.shareDismissCallback);
-    this.shareController = undefined;
-  };
+  private share: NoteShare = new NoteShare();
   @State private menuVisible: boolean = false;
   @State private folderPickerVisible: boolean = false;
   @State private folderProgress: number = 0;
-  private gestureStartProgress: number = 0;
+  private gestureLastOffset: number = 0;
   private folderGestureAllowed: boolean = false;
   private activeInput: string = '';
   private keyboardTimer: number = -1;
@@ -87,39 +81,70 @@ struct NoteEditor {
   private original?: Note;
 
   aboutToAppear(): void {
+    this.sessionGeneration++;
     syncDesktopNotes();
     this.params = this.getUIContext().getRouter().getParams() as NoteEditorParams;
     this.original = findNote(this.params.id);
-    this.title = this.original?.title ?? '';
-    this.content = this.original?.content ?? '';
-    this.blocks = this.original?.blocks?.map((block: BodyBlock) => ({ id: block.id, text: block.text, imageId: block.imageId } as BodyBlock)) ?? [textBlock(this.content)];
-    this.images = this.original?.images?.map((item: NoteImage) => copyImage(item)) ?? [];
-    this.originalDocument = JSON.stringify(this.blocks);
-    this.originalImages = JSON.stringify(this.images);
-    this.history = new NoteHistory(this.title, this.originalDocument);
-    this.activeBlock = this.blocks[0].id;
+    this.session.load(this.original);
     this.editing = this.original === undefined;
     this.selectedGroup = this.original?.group ?? this.params.group;
     this.skinId = this.original?.skinId ?? 'white';
   }
 
   onPageShow(): void {
+    this.pageVisible = true;
+    const requested = this.getUIContext().getRouter().getParams() as NoteEditorParams;
+    if (requested && requested.id !== this.params.id) {
+      if (!this.saveBeforeLeaving()) { return; }
+      this.sessionGeneration++;
+      releaseUnusedImages(this.session.images, listNotes());
+      this.params = requested;
+      syncDesktopNotes();
+      this.original = findNote(requested.id);
+      this.session.load(this.original);
+      this.skinId = this.original?.skinId ?? 'white';
+      this.selectedGroup = this.original?.group ?? requested.group;
+      this.editing = this.original === undefined;
+      this.skinPickerVisible = false;
+      this.menuVisible = false;
+      this.folderPickerVisible = false;
+      this.captionVisible = false;
+      this.selectedImage = '';
+      this.detailImage = '';
+      this.folderProgress = 0;
+      this.bodyScroller.scrollTo({ xOffset: 0, yOffset: 0 });
+    }
     syncDesktopNotes();
+    if (this.original && readDesktopRecord(this.params.id)?.deleted) {
+      this.resolveDeletedNote();
+      return;
+    }
     const latest = readDesktopNote(this.params.id);
     if (latest && this.original && JSON.stringify(latest) !== JSON.stringify(this.original)) {
       this.refreshExternalNote(latest);
     }
   }
 
+  private refreshDesktopTarget(): void {
+    if (this.pageVisible && !this.disposed) { this.onPageShow(); }
+  }
+
+  onPageHide(): void {
+    this.pageVisible = false;
+    clearTimeout(this.keyboardTimer);
+    clearTimeout(this.scrollRestoreTimer);
+  }
+
   private async refreshExternalNote(latest: Note): Promise<void> {
-    if (this.title !== this.original?.title || this.originalDocument !== JSON.stringify(this.blocks) ||
-      this.originalImages !== JSON.stringify(this.images)) {
+    const generation: number = this.sessionGeneration;
+    if (this.session.isDirty()) {
       try {
         const choice = await this.getUIContext().getPromptAction().showDialog({
           title: '笔记已在桌面更新', message: '选择保留当前编辑，或载入桌面保存的内容。',
           buttons: [{ text: '保留当前编辑', color: $r('app.color.text_primary') },
             { text: '载入桌面版本', color: $r('app.color.accent') }]
         });
+        if (this.disposed || generation !== this.sessionGeneration || latest.id !== this.params.id) { return; }
         if (choice.index === 0) {
           this.original = latest;
           return;
@@ -128,191 +153,145 @@ struct NoteEditor {
         return;
       }
     }
+    if (this.disposed || generation !== this.sessionGeneration || latest.id !== this.params.id) { return; }
+    releaseUnusedImages(this.session.images, listNotes());
+    this.sessionGeneration++;
     this.original = latest;
-    this.title = latest.title;
-    this.content = latest.content;
-    this.blocks = latest.blocks ?? [textBlock(latest.content)];
-    this.images = latest.images ?? [];
+    this.session.load(latest);
     this.skinId = latest.skinId ?? 'white';
     this.selectedGroup = latest.group;
     this.params.group = latest.group;
-    this.originalDocument = JSON.stringify(this.blocks);
-    this.originalImages = JSON.stringify(this.images);
-    this.history = new NoteHistory(this.title, this.originalDocument);
-    this.updateHistoryButtons();
+  }
+
+  private async resolveDeletedNote(): Promise<void> {
+    if (this.deletionPromptVisible) { return; }
+    const generation: number = this.sessionGeneration;
+    this.deletionPromptVisible = true;
+    try {
+      const choice = await this.getUIContext().getPromptAction().showDialog({
+        title: '笔记已在其他入口删除', message: '可以将当前内容另存为新笔记，或放弃当前草稿。',
+        buttons: [{ text: '另存为新笔记', color: $r('app.color.accent') },
+          { text: '放弃当前草稿', color: $r('app.color.text_primary') }]
+      });
+      if (this.disposed || generation !== this.sessionGeneration) { return; }
+      if (choice.index === 0) {
+        const result = saveNoteDraft({ id: '', group: this.selectedGroup, title: this.session.title,
+          blocks: this.session.blocks, images: this.session.referencedImages(), skinId: this.skinId,
+          expectedSnapshot: '' });
+        if (result.status === 'saved' && result.note) {
+          this.params.id = result.note.id;
+          this.params.group = result.note.group;
+          this.original = result.note;
+          this.session.markSaved();
+          this.getUIContext().getPromptAction().showToast({ message: '已另存为新笔记' });
+        } else {
+          this.getUIContext().getPromptAction().showToast({ message: '另存失败，当前草稿仍保留' });
+        }
+      } else {
+        releaseUnusedImages(this.session.images, listNotes());
+        this.session.markSaved();
+        this.getUIContext().getRouter().back();
+      }
+    } catch {
+      return;
+    } finally {
+      this.deletionPromptVisible = false;
+    }
   }
 
   private sendToDesktop(): void {
     this.menuVisible = false;
-    if (!this.title.trim() && !this.content.trim() && !this.hasImages()) {
+    if (!this.session.title.trim() && !this.session.content.trim() && !this.hasImages()) {
       this.getUIContext().getPromptAction().showToast({ message: '请填写内容后再发送到桌面' });
       return;
     }
-    try {
-      const note = saveNote(this.params, this.title, this.content, this.skinId, this.blocks,
-        this.images.filter((item: NoteImage) => this.blocks.some((block: BodyBlock) => block.imageId === item.id)));
-      persistDesktopNote(note);
-      refreshDesktopCards(note.id);
-      this.original = note;
-      this.originalDocument = JSON.stringify(this.blocks);
-      this.originalImages = JSON.stringify(this.images);
+    if (this.commitDraft(true)) {
       this.getUIContext().getRouter().pushUrl({ url: 'pages/NoteDesktop', params: this.params });
-    } catch {
-      this.getUIContext().getPromptAction().showToast({ message: '无法保存笔记，请稍后重试' });
     }
   }
 
   aboutToDisappear(): void {
     clearTimeout(this.keyboardTimer);
-    this.images.forEach((item: NoteImage) => {
-      if (!listNotes().some((note: Note) => note.images?.some((saved: NoteImage) => saved.path === item.path))) {
-        try { fs.unlinkSync(item.path); } catch {}
-      }
-    });
-    this.shareController?.off('dismiss', this.shareDismissCallback);
+    clearTimeout(this.scrollRestoreTimer);
+    this.disposed = true;
+    releaseUnusedImages(this.session.images, listNotes());
+    this.share.dispose();
   }
 
   private inputEditingChanged(active: boolean, id: string): void {
-    this.history.closeGroup();
+    this.session.closeGroup();
     if (active) {
       clearTimeout(this.keyboardTimer);
       this.activeInput = id;
     } else if (this.activeInput === id) {
       this.activeInput = '';
       this.keyboardTimer = setTimeout(() => {
-        if (this.activeInput === '') {
+        if (this.activeInput === '' && this.pageVisible && !this.disposed) {
           this.editing = false;
         }
       }, 0);
     }
   }
 
-  private updateHistoryButtons(): void {
-    this.canUndo = this.history.canUndo();
-    this.canRedo = this.history.canRedo();
-  }
-
   private changeText(value: string, field: string, preview?: PreviewText): void {
-    if (field === TITLE_INPUT_ID) {
-      this.title = value;
-    } else {
-      this.content = value;
-    }
-    if (preview && preview.value.length > 0) {
-      return;
-    }
-    this.history.record(this.title, JSON.stringify(this.blocks), field);
-    if (this.pastePending) {
-      this.history.closeGroup();
-      this.pastePending = false;
-    }
-    this.updateHistoryButtons();
+    this.session.changeTitle(value, !!preview && preview.value.length > 0);
   }
 
-  private preparePaste(): void {
-    this.history.closeGroup();
-    this.pastePending = true;
-  }
+  private preparePaste(): void { this.session.preparePaste(); }
 
   private restoreHistory(redo: boolean): void {
-    const draft: NoteDraft = redo ? this.history.redo() : this.history.undo();
-    this.title = draft.title;
-    this.blocks = JSON.parse(draft.content) as BodyBlock[];
-    this.content = documentText(this.blocks);
+    this.session.restoreHistory(redo);
     this.selectedImage = '';
-    this.updateHistoryButtons();
+    this.focusTarget = this.session.activeBlock;
+    clearTimeout(this.keyboardTimer);
+    this.keyboardTimer = setTimeout(() => {
+      if (!this.disposed && this.pageVisible && this.editing) {
+        this.getUIContext().getFocusController().requestFocus(this.focusTarget);
+        this.controllerFor(this.focusTarget).caretPosition(this.session.caret);
+      }
+    }, 0);
   }
 
-  private hasImages(): boolean {
-    return this.blocks.some((block: BodyBlock) => block.imageId !== '');
+  private controllerFor(id: string): TextAreaController {
+    let controller = this.inputControllers.get(id);
+    if (!controller) {
+      controller = new TextAreaController();
+      this.inputControllers.set(id, controller);
+    }
+    return controller;
   }
 
-  private imageItem(id: string): NoteImage {
-    return this.images.find((item: NoteImage) => item.id === id) ?? {
-      id: '', path: '', name: '', width: 1, height: 1, bytes: 0, caption: '', small: false
-    };
-  }
+  private hasImages(): boolean { return this.session.hasImages(); }
 
-  private recordDocument(): void {
-    this.content = documentText(this.blocks);
-    this.history.closeGroup();
-    this.history.record(this.title, JSON.stringify(this.blocks), 'image');
-    this.history.closeGroup();
-    this.updateHistoryButtons();
-  }
+  private imageItem(id: string): NoteImage { return this.session.imageItem(id); }
 
   private async insertImage(): Promise<void> {
-    if (this.pickingImage) {
-      return;
-    }
+    if (this.pickingImage) { return; }
     this.pickingImage = true;
-    this.history.closeGroup();
-    const target: string = this.activeBlock;
-    const offset: number = this.caret;
-    let copiedPath: string = '';
+    this.session.closeGroup();
+    const target: string = this.session.activeBlock;
+    const offset: number = this.session.caret;
+    const generation: number = this.sessionGeneration;
     try {
       const options = new photoAccessHelper.PhotoSelectOptions();
       options.MIMEType = photoAccessHelper.PhotoViewMIMETypes.IMAGE_TYPE;
       options.maxSelectNumber = 1;
-      const picker = new photoAccessHelper.PhotoViewPicker();
-      const result = await picker.select(options);
-      if (result.photoUris.length === 0) {
+      const result = await new photoAccessHelper.PhotoViewPicker().select(options);
+      if (result.photoUris.length === 0 || this.disposed || generation !== this.sessionGeneration) { return; }
+      const context = this.getUIContext().getHostContext() as common.UIAbilityContext;
+      const item = await importNoteImage(context.filesDir, result.photoUris[0]);
+      if (this.disposed || generation !== this.sessionGeneration) {
+        releaseUnusedImages([item], listNotes());
         return;
       }
-      const context = this.getUIContext().getHostContext() as common.UIAbilityContext;
-      const directory: string = context.filesDir + '/note-images';
-      if (!fs.accessSync(directory)) {
-        fs.mkdirSync(directory, true);
-      }
-      const id: string = `image-${Date.now()}`;
-      copiedPath = directory + '/' + id;
-      const source = fs.openSync(result.photoUris[0], fs.OpenMode.READ_ONLY);
-      try {
-        fs.copyFileSync(source.fd, copiedPath);
-      } finally {
-        fs.closeSync(source);
-      }
-      const file = fs.openSync(copiedPath, fs.OpenMode.READ_ONLY);
-      let width: number = 1;
-      let height: number = 1;
-      try {
-        const decoder = image.createImageSource(file.fd);
-        try {
-          const info = await decoder.getImageInfo();
-          width = info.size.width;
-          height = info.size.height;
-        } finally {
-          await decoder.release();
-        }
-      } finally {
-        fs.closeSync(file);
-      }
-      this.images = [...this.images, {
-        id: id, path: copiedPath, name: id, width: width, height: height,
-        bytes: fs.statSync(copiedPath).size, caption: '', small: false
-      }];
-      let index: number = this.blocks.findIndex((block: BodyBlock) => block.id === target && block.imageId === '');
-      if (index < 0) {
-        index = this.blocks.length - 1;
-      }
-      const current: BodyBlock = this.blocks[index];
-      const split: number = Math.max(0, Math.min(offset, current.text.length));
-      const after: BodyBlock = textBlock(current.text.substring(split));
-      this.blocks = [...this.blocks.slice(0, index),
-        { id: current.id, text: current.text.substring(0, split), imageId: '' },
-        { id: id, text: '', imageId: id }, after, ...this.blocks.slice(index + 1)];
-      this.activeBlock = after.id;
-      this.caret = 0;
-      this.focusTarget = after.id;
+      this.focusTarget = this.session.insertImage(item, target, offset);
       this.editing = true;
-      this.recordDocument();
     } catch {
-      if (copiedPath !== '') {
-        try { fs.unlinkSync(copiedPath); } catch {}
+      if (!this.disposed) {
+        this.getUIContext().getPromptAction().showToast({ message: '无法插入图片，请重新选择' });
       }
-      this.getUIContext().getPromptAction().showToast({ message: '无法插入图片，请重新选择' });
     } finally {
-      this.pickingImage = false;
+      if (!this.disposed) { this.pickingImage = false; }
     }
   }
 
@@ -321,33 +300,20 @@ struct NoteEditor {
       this.captionDraft = this.imageItem(id).caption;
       this.captionVisible = true;
     } else if (action === '尺寸') {
-      this.images = this.images.map((item: NoteImage) => item.id === id ? copyImage(item, item.caption, !item.small) : item);
+      this.session.images = this.session.images.map((item: NoteImage) => item.id === id ? copyImage(item, item.caption, !item.small) : item);
     } else if (action === '详情') {
       this.zoom = 1;
       this.detailImage = id;
     } else {
-      this.blocks = this.blocks.filter((block: BodyBlock) => block.imageId !== id);
+      this.session.removeImage(id);
       this.selectedImage = '';
-      this.recordDocument();
     }
   }
 
-  private blockText(id: string): string {
-    return this.blocks.find((block: BodyBlock) => block.id === id)?.text ?? '';
-  }
+  private blockText(id: string): string { return this.session.blockText(id); }
 
   private changeBlock(value: string, id: string, preview?: PreviewText): void {
-    this.blocks = this.blocks.map((block: BodyBlock) => block.id === id ? { id: block.id, imageId: block.imageId, text: value } : block);
-    this.content = documentText(this.blocks);
-    if (preview && preview.value.length > 0) {
-      return;
-    }
-    this.history.record(this.title, JSON.stringify(this.blocks), id);
-    if (this.pastePending) {
-      this.history.closeGroup();
-      this.pastePending = false;
-    }
-    this.updateHistoryButtons();
+    this.session.changeBlock(value, id, !!preview && preview.value.length > 0);
   }
 
   @Builder
@@ -388,7 +354,7 @@ struct NoteEditor {
         .objectFit(ImageFit.Contain)
         .accessibilityText(this.imageItem(block.imageId).caption || '笔记图片')
         .onClick(() => {
-          this.history.closeGroup();
+          this.session.closeGroup();
           this.selectedImage = this.selectedImage === block.imageId ? '' : block.imageId;
         })
       if (this.imageItem(block.imageId).caption !== '') {
@@ -426,85 +392,66 @@ struct NoteEditor {
   DocumentBody() {
     Scroll(this.bodyScroller) {
       Column({ space: BODY_INPUT_VERTICAL_PADDING }) {
-        ForEach(this.blocks, (block: BodyBlock) => {
+        ForEach(this.session.blocks, (block: BodyBlock) => {
           if (block.imageId !== '') {
             this.ImageBlock(block)
           } else if (this.editing) {
-            TextArea({ text: this.blockText(block.id), placeholder: this.blocks.length === 1 ? '正文' : '' })
+            TextArea({ text: this.blockText(block.id), placeholder: this.session.blocks.length === 1 ? '正文' : '',
+              controller: this.controllerFor(block.id) })
               .id(block.id)
               .placeholderColor(this.skin().secondary)
               .backgroundColor(Color.Transparent).borderRadius(0)
               .fontColor(this.skin().text).fontSize(BODY_FONT_SIZE)
-              .padding({ top: BODY_INPUT_VERTICAL_PADDING, bottom: BODY_INPUT_VERTICAL_PADDING, left: 0, right: 0 })
+              .padding(0)
+              .lineHeight(BODY_LINE_HEIGHT)
               .width('100%')
               .constraintSize({ minHeight: NAV_BUTTON_SIZE })
               .onAppear(() => {
                 if (this.focusTarget === block.id ||
-                  (this.focusTarget === BODY_INPUT_ID && this.activeBlock === block.id)) {
+                  (this.focusTarget === BODY_INPUT_ID && this.session.activeBlock === block.id)) {
                   this.getUIContext().getFocusController().requestFocus(block.id);
+                  this.controllerFor(block.id).caretPosition(this.session.caret);
                 }
               })
               .onEditChange((active: boolean) => {
                 if (active) {
-                  this.activeBlock = block.id;
+                  this.session.activeBlock = block.id;
                   this.selectedImage = '';
                 }
                 this.inputEditingChanged(active, block.id);
               })
               .onTextSelectionChange((start: number, end: number) => {
                 if (this.activeInput === block.id) {
-                  this.activeBlock = block.id;
-                  this.caret = end;
+                  this.session.activeBlock = block.id;
+                  this.session.caret = end;
                 }
               })
               .onPaste(() => this.preparePaste())
               .onChange((value: string, preview?: PreviewText) => this.changeBlock(value, block.id, preview))
           } else {
-            Text(this.blockText(block.id) || (this.blocks.length === 1 ? '正文' : ' '))
+            Text(this.blockText(block.id) || (this.session.blocks.length === 1 ? '正文' : ' '))
               .fontColor(this.blockText(block.id) ? this.skin().text : this.skin().secondary)
               .fontSize(BODY_FONT_SIZE).width('100%')
+              .lineHeight(BODY_LINE_HEIGHT)
               .constraintSize({ minHeight: NAV_BUTTON_SIZE })
               .onClick(() => {
                 this.selectedImage = '';
-                this.activeBlock = block.id;
+                this.session.activeBlock = block.id;
                 this.startEditing(block.id);
               })
           }
         }, (block: BodyBlock) => block.id)
         Blank().height(NAV_BUTTON_SIZE).width('100%').onClick(() => {
           this.selectedImage = '';
-          const last: BodyBlock = this.blocks[this.blocks.length - 1];
-          this.activeBlock = last.id;
-          this.caret = last.text.length;
+          const last: BodyBlock = this.session.blocks[this.session.blocks.length - 1];
+          this.session.activeBlock = last.id;
+          this.session.caret = last.text.length;
           this.startEditing(last.id);
         })
       }.width('100%')
     }
     .align(Alignment.TopStart).layoutWeight(1).width('100%')
     .onDidScroll(() => { this.selectedImage = ''; })
-  }
-
-  @Builder
-  CaptionEditor() {
-    Column() {
-      Blank().layoutWeight(1).width('100%')
-      Column({ space: EDITOR_PADDING }) {
-        Text('图片描述').fontSize(BODY_FONT_SIZE).fontColor(this.skin().text)
-        TextArea({ text: this.captionDraft, placeholder: '输入图片描述' })
-          .height(120).fontColor(this.skin().text).backgroundColor(this.skin().background)
-          .onChange((value: string) => { this.captionDraft = value; })
-        Row() {
-          Button('取消').onClick(() => { this.captionVisible = false; })
-          Blank()
-          Button('完成').onClick(() => {
-            this.images = this.images.map((item: NoteImage) => item.id === this.selectedImage ?
-              copyImage(item, this.captionDraft.trim()) : item);
-            this.captionVisible = false;
-          })
-        }.width('100%')
-      }.padding(EDITOR_PADDING).width('100%').backgroundColor(this.skin().panel)
-      Blank().layoutWeight(1).width('100%')
-    }.width('100%').height('100%').backgroundColor('#99000000')
   }
 
   @Builder
@@ -535,8 +482,9 @@ struct NoteEditor {
     .height(NAV_BUTTON_SIZE)
     .backgroundColor(Color.Transparent)
     .accessibilityText(label)
-    .enabled(redo ? this.canRedo : this.canUndo)
-    .opacity((redo ? this.canRedo : this.canUndo) ? 1 : 0.3)
+    .id('note-action-' + label)
+    .enabled(redo ? this.session.canRedo : this.session.canUndo)
+    .opacity((redo ? this.session.canRedo : this.session.canUndo) ? 1 : 0.3)
     .onClick(() => this.restoreHistory(redo))
   }
   private startEditing(target: string): void {
@@ -544,7 +492,15 @@ struct NoteEditor {
       return;
     }
     this.focusTarget = target;
+    this.skinPickerVisible = false;
+    this.savedBodyOffset = this.bodyScroller.currentOffset().yOffset;
     this.editing = true;
+    clearTimeout(this.scrollRestoreTimer);
+    this.scrollRestoreTimer = setTimeout(() => {
+      if (!this.disposed) {
+        this.bodyScroller.scrollTo({ xOffset: 0, yOffset: this.savedBodyOffset });
+      }
+    }, SCROLL_RESTORE_DELAY);
   }
 
   private focusInput(id: string): void {
@@ -554,25 +510,34 @@ struct NoteEditor {
   }
 
   private saveBeforeLeaving(): boolean {
-    if (this.original?.title === this.title && this.originalDocument === JSON.stringify(this.blocks) &&
-      this.originalImages === JSON.stringify(this.images)) {
-      return true;
-    }
-    if (this.title.trim().length === 0 && this.content.trim().length === 0 && !this.hasImages()) {
+    if (!this.session.isDirty()) { return true; }
+    if (isBlankNote(this.session.title, this.session.blocks)) {
       if (this.original) {
         this.getUIContext().getPromptAction().showToast({ message: '请填写标题或正文' });
         return false;
       }
       return true;
     }
-    try {
-      saveNote(this.params, this.title, this.content, this.skinId, this.blocks,
-        this.images.filter((item: NoteImage) => this.blocks.some((block: BodyBlock) => block.imageId === item.id)));
+    return this.commitDraft(false);
+  }
+
+  private commitDraft(persistToDesktop: boolean): boolean {
+    const result = saveNoteDraft({ id: this.params.id, group: this.selectedGroup,
+      title: this.session.title, blocks: this.session.blocks, images: this.session.referencedImages(),
+      skinId: this.skinId, expectedSnapshot: snapshotNote(this.original), persistToDesktop: persistToDesktop });
+    if (result.status === 'saved' && result.note) {
+      this.original = result.note;
+      this.params.id = result.note.id;
+      this.params.group = result.note.group;
+      this.session.markSaved();
       return true;
-    } catch {
-      this.getUIContext().getPromptAction().showToast({ message: '保存失败，请稍后重试' });
-      return false;
     }
+    const message: string = result.status === 'conflict' ? '笔记已在其他入口更新，请返回编辑页重新确认版本' :
+      result.status === 'deleted' ? '笔记已在其他入口删除，当前内容尚未保存' :
+      result.status === 'empty' ? '请填写标题或正文' : '保存失败，请稍后重试';
+    this.getUIContext().getPromptAction().showToast({ message: message });
+    if (result.status === 'deleted') { this.resolveDeletedNote(); }
+    return false;
   }
 
   onBackPress(): boolean {
@@ -608,33 +573,10 @@ struct NoteEditor {
   }
 
   private async shareNote(): Promise<void> {
-    if (this.sharing) {
-      return;
-    }
-    const parts: string[] = [];
-    if (this.title.trim().length > 0) {
-      parts.push(this.title);
-    }
-    if (this.content.trim().length > 0) {
-      parts.push(this.content);
-    }
-    if (parts.length === 0) {
-      this.getUIContext().getPromptAction().showToast({ message: '请填写标题或正文后再分享' });
-      return;
-    }
-    this.sharing = true;
-    try {
-      const data = new systemShare.SharedData({
-        utd: uniformTypeDescriptor.UniformDataType.PLAIN_TEXT,
-        content: parts.join('\n\n')
-      });
-      this.shareController = new systemShare.ShareController(data);
-      this.shareController.on('dismiss', this.shareDismissCallback);
-      const context = this.getUIContext().getHostContext() as common.UIAbilityContext;
-      await this.shareController.show(context, {});
-    } catch {
-      this.shareDismissCallback();
-      this.getUIContext().getPromptAction().showToast({ message: '暂时无法打开分享，请稍后重试' });
+    const context = this.getUIContext().getHostContext() as common.UIAbilityContext;
+    const message = await this.share.show(context, this.session.title, this.session.content);
+    if (message && !this.disposed && this.pageVisible) {
+      this.getUIContext().getPromptAction().showToast({ message: message });
     }
   }
 
@@ -651,15 +593,26 @@ struct NoteEditor {
   }
 
   private selectSkin(id: string): void {
-    this.skinId = id;
-    changeNoteSkin(this.params.id, id);
+    try {
+      changeNoteSkin(this.params.id, id);
+      this.skinId = id;
+      if (this.original) { this.original.skinId = id; }
+    } catch {
+      this.getUIContext().getPromptAction().showToast({ message: '皮肤保存失败，请重试' });
+    }
   }
 
   private selectFolder(label: string): void {
     const group: string = label === UNFILED ? '' : label;
-    this.selectedGroup = group;
-    this.params.group = group;
-    moveNote(this.params.id, group);
+    try {
+      moveNote(this.params.id, group);
+      this.selectedGroup = group;
+      this.params.group = group;
+      if (this.original) { this.original.group = group; }
+    } catch {
+      this.getUIContext().getPromptAction().showToast({ message: '分组保存失败，请重试' });
+      return;
+    }
     this.folderPickerVisible = false;
     this.folderProgress = 1;
   }
@@ -690,13 +643,17 @@ struct NoteEditor {
       Image(resource).width(NAV_ICON_SIZE).height(NAV_ICON_SIZE).colorFilter(this.skinIconFilter())
     }
     .accessibilityText(label)
+    .id('note-action-' + label)
     .width(NAV_BUTTON_SIZE)
     .height(NAV_BUTTON_SIZE)
     .backgroundColor(Color.Transparent)
     .onClick(() => {
       if (label === '皮肤') {
-        this.skinPickerVisible = !this.skinPickerVisible && this.selectedImage === '' && this.detailImage === '';
+        this.selectedImage = '';
+        this.skinPickerVisible = !this.skinPickerVisible;
       } else if (label === '分享') {
+        this.skinPickerVisible = false;
+        this.selectedImage = '';
         this.shareNote();
       } else {
         this.pendingFeature(label);
@@ -727,7 +684,7 @@ struct NoteEditor {
           .backgroundColor(Color.Transparent)
           .fontColor(this.skin().text)
           .onClick(() => {
-            this.history.closeGroup();
+            this.session.closeGroup();
             this.getUIContext().getFocusController().clearFocus();
             this.editing = false;
           })
@@ -742,6 +699,8 @@ struct NoteEditor {
         .height(NAV_BUTTON_SIZE)
         .backgroundColor(Color.Transparent)
         .onClick(() => {
+          this.skinPickerVisible = false;
+          this.selectedImage = '';
           this.menuVisible = true;
         })
       }
@@ -751,7 +710,7 @@ struct NoteEditor {
 
   @Builder
   Metadata() {
-    Text(`${this.original ? this.original.timeLabel + '  |  ' : ''}${Array.from(this.content.replace(/\s/g, '')).length}字`)
+    Text(`${this.original ? this.original.timeLabel + '  |  ' : ''}${Array.from(this.session.content.replace(/\s/g, '')).length}字`)
       .fontSize(META_FONT_SIZE)
       .fontColor(this.skin().secondary)
   }
@@ -760,8 +719,7 @@ struct NoteEditor {
   EditorContent() {
     Column({ space: EDITOR_PADDING }) {
       this.NavigationBar()
-      if (!this.editing) {
-        Column() {
+      Column() {
         Button({ type: ButtonType.Normal }) {
           Row({ space: BODY_INPUT_VERTICAL_PADDING }) {
             Image($r('app.media.ic_folder')).width(NAV_ICON_SIZE).height(NAV_ICON_SIZE).colorFilter(this.skinIconFilter())
@@ -771,18 +729,18 @@ struct NoteEditor {
         .backgroundColor(this.skin().panel)
         .fontColor(this.skin().text)
         .borderRadius(MENU_CORNER)
+        .padding({ left: EDITOR_PADDING, right: EDITOR_PADDING })
         .height(FOLDER_HEIGHT)
         .opacity(this.folderProgress)
-        .enabled(this.folderProgress === 1)
+        .enabled(!this.editing && this.folderProgress === 1)
         .onClick(() => {
           this.folderPickerVisible = true;
         })
         }
         .height(FOLDER_HEIGHT * this.folderProgress)
         .clip(true)
-      }
       if (this.editing) {
-        TextInput({ text: this.title, placeholder: '标题' })
+        TextInput({ text: this.session.title, placeholder: '标题' })
           .id(TITLE_INPUT_ID)
           .placeholderColor(this.skin().secondary)
           .backgroundColor(Color.Transparent)
@@ -790,27 +748,29 @@ struct NoteEditor {
           .fontSize(TITLE_FONT_SIZE)
           .fontWeight(FontWeight.Bold)
           .padding(0)
+          .height(TITLE_LINE_HEIGHT)
           .onAppear(() => this.focusInput(TITLE_INPUT_ID))
           .onEditChange((active: boolean) => this.inputEditingChanged(active, TITLE_INPUT_ID))
           .onPaste(() => this.preparePaste())
           .onChange((value: string, preview?: PreviewText) => this.changeText(value, TITLE_INPUT_ID, preview))
 
-        this.Metadata()
-
-        this.DocumentBody()
-        this.EditTools()
       } else {
-        Text(this.title.length > 0 ? this.title : '标题')
-          .fontColor(this.title.length > 0 ? this.skin().text : this.skin().secondary)
+        Text(this.session.title.length > 0 ? this.session.title : '标题')
+          .fontColor(this.session.title.length > 0 ? this.skin().text : this.skin().secondary)
           .fontSize(TITLE_FONT_SIZE)
           .fontWeight(FontWeight.Bold)
           .width('100%')
+          .maxLines(1)
+          .textOverflow({ overflow: TextOverflow.Ellipsis })
+          .height(TITLE_LINE_HEIGHT)
           .onClick(() => this.startEditing(TITLE_INPUT_ID))
 
-        this.Metadata()
-
-        this.DocumentBody()
       }
+      this.Metadata()
+      this.DocumentBody()
+      Column() {
+        this.EditTools()
+      }.height(NAV_BUTTON_SIZE).visibility(this.editing ? Visibility.Visible : Visibility.Hidden)
     }
     .alignItems(HorizontalAlign.Start)
     .padding(EDITOR_PADDING)
@@ -820,13 +780,15 @@ struct NoteEditor {
     .parallelGesture(
       PanGesture({ direction: PanDirection.Vertical, distance: FOLDER_GESTURE_DISTANCE })
         .onActionStart(() => {
-          this.gestureStartProgress = this.folderProgress;
+          this.gestureLastOffset = 0;
           this.folderGestureAllowed = !this.editing && !this.menuVisible && !this.folderPickerVisible && !this.skinPickerVisible && this.selectedImage === '' && this.detailImage === '';
         })
         .onActionUpdate((event: GestureEvent) => {
           if (this.folderGestureAllowed) {
-            if (event.offsetY < 0 || this.bodyScroller.currentOffset().yOffset <= 0) {
-              this.folderProgress = Math.max(0, Math.min(1, this.gestureStartProgress + event.offsetY / FOLDER_HEIGHT));
+            const delta: number = event.offsetY - this.gestureLastOffset;
+            this.gestureLastOffset = event.offsetY;
+            if (delta < 0 || this.bodyScroller.currentOffset().yOffset <= 0) {
+              this.folderProgress = Math.max(0, Math.min(1, this.folderProgress + delta / FOLDER_HEIGHT));
             }
             this.gestureFinishedAt = Date.now();
           }
@@ -843,63 +805,27 @@ struct NoteEditor {
   build() {
     Stack({ alignContent: Alignment.TopEnd }) {
       if (isDynamicSkin(this.skin())) {
-        DynamicSkinView({ effect: this.skin().effect })
+        DynamicSkinView({ effect: this.skin().effect, paused: !this.pageVisible || this.editing || this.captionVisible || this.detailImage !== '' })
       }
       this.EditorContent()
       if (this.detailImage !== '') {
         this.ImageDetails()
       }
       if (this.captionVisible) {
-        this.CaptionEditor()
+        NoteCaptionEditorView({ initialText: this.captionDraft, panelColor: this.skin().panel,
+          textColor: this.skin().text, inputColor: this.skin().background,
+          onCancel: () => { this.captionVisible = false; },
+          onConfirm: (value: string) => {
+            this.session.images = this.session.images.map((item: NoteImage) => item.id === this.selectedImage ?
+              copyImage(item, value.trim()) : item);
+            this.captionVisible = false;
+          } })
       }
       if (this.skinPickerVisible) {
         Column() {
-          Blank()
-            .layoutWeight(1)
-            .width('100%')
-            .onClick(() => {
-              this.skinPickerVisible = false;
-            })
-          Scroll() {
-            Row({ space: EDITOR_PADDING }) {
-              ForEach(NOTE_SKINS, (skin: NoteSkin) => {
-                Button({ type: ButtonType.Normal }) {
-                  Stack() {
-                    if (skin.effect === 'breeze') {
-                      Image($r('app.media.skin_breeze_leaf')).width(70).height(100).opacity(0.22)
-                    } else if (skin.effect === 'sakura') {
-                      Image($r('app.media.skin_sakura_petal')).width(54).height(54).opacity(0.55)
-                    } else if (skin.effect === 'firefly') {
-                      Row({ space: 8 }) {
-                        Circle().width(6).height(6).fill('#F6E58C').opacity(0.9)
-                        Circle().width(4).height(4).fill('#F5EFC8').opacity(0.6)
-                        Circle().width(7).height(7).fill('#F6E58C').opacity(0.75)
-                      }
-                    }
-                    Column() {
-                    Text(skin.name).fontSize(BODY_FONT_SIZE).fontColor(skin.text)
-                    Text('笔记预览').fontSize(META_FONT_SIZE).fontColor(skin.secondary)
-                    }
-                  }
-                }
-                .width(SKIN_CARD_WIDTH)
-                .height(SKIN_CARD_HEIGHT)
-                .backgroundColor(skin.background)
-                .borderRadius(MENU_CORNER)
-                .border({ width: 3, color: this.skinId === skin.id ? SKIN_SELECTED_COLOR : Color.Transparent })
-                .accessibilityText(skin.name)
-                .onClick(() => this.selectSkin(skin.id))
-              })
-            }
-            .padding(EDITOR_PADDING)
-          }
-          .scrollable(ScrollDirection.Horizontal)
-          .scrollBar(BarState.Off)
-          .width('100%')
-          .backgroundColor(this.skin().panel)
-        }
-        .width('100%')
-        .height('100%')
+          NoteSkinPickerView({ selectedId: this.skinId, panelColor: this.skin().panel,
+            onSelect: (id: string) => this.selectSkin(id) })
+        }.width('100%').height(SKIN_PANEL_HEIGHT).position({ x: 0, y: '100%' }).translate({ y: -SKIN_PANEL_HEIGHT })
       }
       if (this.menuVisible || this.folderPickerVisible) {
         Column()
@@ -944,7 +870,7 @@ struct NoteEditor {
       }
       if (this.folderPickerVisible) {
         Column() {
-          Text('移动到').fontSize(TITLE_FONT_SIZE).padding(EDITOR_PADDING)
+          Text('移动到').fontSize(TITLE_FONT_SIZE).fontColor(this.skin().text).padding(EDITOR_PADDING)
           ForEach(FOLDER_OPTIONS, (label: string) => {
             Button(label + ((this.selectedGroup || UNFILED) === label ? '  ✓' : ''), { type: ButtonType.Normal })
               .width('100%')

@@ -71,8 +71,11 @@ note_by_agent/entry/src/main/ets/
   pages/               页面（@Entry）
   components/          可复用组件
   model/               数据模型与假数据
-  viewmodel/           状态与业务逻辑（后续新建）
-  common/              常量、工具（后续新建）
+  viewmodel/           编辑会话与草稿历史状态
+  services/            保存、删除、移动与换肤业务入口
+  repository/          内存与选择性 JSON 存储
+  platform/            分享、附件文件、桌面通知与启动适配
+  common/              常量、工具（按需新建）
 ```
 
 ## 代码约定

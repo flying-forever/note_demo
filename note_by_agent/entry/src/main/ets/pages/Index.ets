@@ -1,7 +1,9 @@
 import { NoteCard } from '../components/NoteCard';
+import { router } from '@kit.ArkUI';
 import { TECH_DEMOS_ENABLED } from '../diagnostics/DemoCatalog';
 import { GROUP_ALL, GROUP_UNFILED, NOTE_GROUPS, Note, noteCardTitle } from '../model/Note';
-import { listNotes, NoteEditorParams, syncDesktopNotes, findNote } from '../model/NoteStore';
+import { NoteEditorParams } from '../services/NoteService';
+import { listNotes, syncDesktopNotes, findNote } from '../repository/NoteRepository';
 
 const LARGE_TITLE_FONT_SIZE: number = 44;
 const HEADER_SLOT_HEIGHT: number = 56;
@@ -44,7 +46,8 @@ struct Index {
       this.getUIContext().getPromptAction().showToast({ message: '笔记已删除或不可用' });
       return;
     }
-    this.getUIContext().getRouter().pushUrl({ url: 'pages/NoteEditor', params: { id: id, group: note.group } })
+    this.getUIContext().getRouter().pushUrl({ url: 'pages/NoteEditor', params: { id: id, group: note.group } }, router.RouterMode.Single)
+      .then(() => AppStorage.setOrCreate('desktopEditorRequest', `${id}:${Date.now()}`))
       .catch(() => this.getUIContext().getPromptAction().showToast({ message: '无法打开笔记，请重试' }));
   }
 
@@ -114,22 +117,38 @@ struct Index {
     this.currentTab = tab;
   }
 
-  private consumeSearchScroll(delta: number, source: ScrollSource): number {
+  private consumeHeaderScroll(delta: number, source: ScrollSource): number {
     const dragging: boolean = this.touchingList && source === ScrollSource.DRAG;
-    if (delta > 0 && this.searchProgress > 0 && (dragging || source === ScrollSource.FLING)) {
+    if (!dragging && source !== ScrollSource.FLING) {
+      return delta;
+    }
+    if (delta > 0 && this.searchProgress > 0) {
       this.cancelSearchRelease();
       const remaining: number = this.searchProgress * SEARCH_ROW_HEIGHT;
       const consumed: number = Math.min(delta, remaining);
       this.searchProgress = (remaining - consumed) / SEARCH_ROW_HEIGHT;
+      delta -= consumed;
+    }
+
+    if (delta > 0 && this.collapseProgress < 1) {
+      const consumed: number = Math.min(delta, (1 - this.collapseProgress) * COLLAPSE_DISTANCE);
+      this.collapseProgress = Math.min(1, this.collapseProgress + consumed / COLLAPSE_DISTANCE);
       return delta - consumed;
     }
 
-    if (delta < 0 && dragging) {
+    if (delta < 0) {
       const offset: number = Math.max(0, this.scroller.currentOffset().yOffset);
       if (-delta > offset) {
-        const pull: number = -delta - offset;
-        this.searchProgress = Math.min(1, this.searchProgress + pull / SEARCH_ROW_HEIGHT);
-        return -offset;
+        let pull: number = -delta - offset;
+        const consumed: number = Math.min(pull, this.collapseProgress * COLLAPSE_DISTANCE);
+        this.collapseProgress = Math.max(0, this.collapseProgress - consumed / COLLAPSE_DISTANCE);
+        pull -= consumed;
+        if (dragging && pull > 0) {
+          const searchConsumed: number = Math.min(pull, (1 - this.searchProgress) * SEARCH_ROW_HEIGHT);
+          this.searchProgress = Math.min(1, this.searchProgress + searchConsumed / SEARCH_ROW_HEIGHT);
+          pull -= searchConsumed;
+        }
+        return -offset - pull;
       }
     }
     return delta;
@@ -302,7 +321,8 @@ struct Index {
       NoteCard({
         title: noteCardTitle(item),
         summary: item.content.trim(),
-        timeLabel: item.timeLabel
+        timeLabel: item.timeLabel,
+        skinId: item.skinId ?? 'white'
       })
     }
     .width('100%')
@@ -319,7 +339,7 @@ struct Index {
         .fontColor($r('app.color.text_tertiary'))
     }
     .width('100%')
-    .height('100%')
+    .height(180)
     .justifyContent(FlexAlign.Center)
   }
 
@@ -339,35 +359,42 @@ struct Index {
   NoteList() {
     Scroll(this.scroller) {
       Column() {
-        Row({ space: 12 }) {
-          Column({ space: 12 }) {
-            ForEach(this.notesForColumn(0), (item: Note) => {
-              this.NoteItem(item)
-            }, (item: Note) => JSON.stringify(item))
-          }
-          .layoutWeight(1)
-          .alignItems(HorizontalAlign.Start)
+        if (this.notes().length === 0) {
+          this.EmptyView()
+        } else {
+          Row({ space: 12 }) {
+            Column({ space: 12 }) {
+              ForEach(this.notesForColumn(0), (item: Note) => {
+                this.NoteItem(item)
+              }, (item: Note) => JSON.stringify(item))
+            }
+            .layoutWeight(1)
+            .alignItems(HorizontalAlign.Start)
 
-          Column({ space: 12 }) {
-            ForEach(this.notesForColumn(1), (item: Note) => {
-              this.NoteItem(item)
-            }, (item: Note) => JSON.stringify(item))
+            Column({ space: 12 }) {
+              ForEach(this.notesForColumn(1), (item: Note) => {
+                this.NoteItem(item)
+              }, (item: Note) => JSON.stringify(item))
+            }
+            .layoutWeight(1)
+            .alignItems(HorizontalAlign.Start)
           }
-          .layoutWeight(1)
-          .alignItems(HorizontalAlign.Start)
+          .width('100%')
+          .alignItems(VerticalAlign.Top)
+          .padding({ top: 4, bottom: 96 })
         }
-        .width('100%')
-        .alignItems(VerticalAlign.Top)
-        .padding({ left: 16, right: 16, top: 4, bottom: 96 })
       }
       .width('100%')
-      .padding({ top: HEADER_SLOT_HEIGHT + GROUP_BAR_HEIGHT + SEARCH_ROW_HEIGHT * this.searchProgress })
+      .constraintSize({ minHeight: '100%' })
+      .justifyContent(this.notes().length === 0 ? FlexAlign.Center : FlexAlign.Start)
     }
     .width('100%')
-    .height('100%')
+    .layoutWeight(1)
+    .borderRadius(12)
+    .clip(true)
     .scrollBar(BarState.Off)
     .align(Alignment.Top)
-    .edgeEffect(EdgeEffect.Spring)
+    .edgeEffect(EdgeEffect.Spring, { alwaysEnabled: true })
     .onTouch((event: TouchEvent) => {
       if (event.type === TouchType.Down) {
         this.cancelSearchRelease();
@@ -381,11 +408,7 @@ struct Index {
       }
     })
     .onWillScroll((xOffset: number, yOffset: number, scrollState: ScrollState, source: ScrollSource) => {
-      return { xOffset: xOffset, yOffset: this.consumeSearchScroll(yOffset, source) };
-    })
-    .onDidScroll(() => {
-      const offset: number = this.scroller.currentOffset().yOffset;
-      this.collapseProgress = Math.min(1, Math.max(0, offset / COLLAPSE_DISTANCE));
+      return { xOffset: xOffset, yOffset: this.consumeHeaderScroll(yOffset, source) };
     })
     .onScrollStop(() => {
       this.settleSearch();
@@ -397,19 +420,16 @@ struct Index {
       Column() {
         this.TopBar()
         if (this.currentTab === 0) {
-          Stack({ alignContent: Alignment.Top }) {
-            if (this.notes().length === 0) {
-              this.EmptyView()
-            } else {
+          Column() {
+            this.HeaderSlot()
+            this.SearchRow()
+            this.GroupBar()
+            Column() {
               this.NoteList()
             }
-            Column() {
-              this.HeaderSlot()
-              this.SearchRow()
-              this.GroupBar()
-            }
+            .layoutWeight(1)
             .width('100%')
-            .backgroundColor($r('app.color.page_bg'))
+            .padding({ left: 16, right: 16 })
           }
           .layoutWeight(1)
           .width('100%')

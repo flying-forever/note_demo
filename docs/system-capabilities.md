@@ -63,3 +63,11 @@ SDK 版本信息来自本机已安装 SDK 的声明文件。运行设备的系�
 ## 动态皮肤叶脉可见性
 
 当前平板上，低透明度 SVG 的叶脉不可见。依次测试显式 L 命令、将描边属性从 g 移到 path、改用 line、将线段改成同色等宽填充轮廓，均未恢复。恢复原始 SVG，仅对 Image 增加 renderGroup(true) 后，原颜色、3 单位线宽和 12%/16% 不透明度下叶脉恢复可见。对照支持透明合成路径影响内部对比度，不能将此问题误记成路径简写不支持，也不能泛化为全部设备的 SVG 描边故障。图案先整体缓存，再整体透明合成；宽高后的 animation(null) 必须保留，缓存不能代替动画范围隔离。
+
+## 2026-11-11 结构迁移与接入补充
+
+- 系统分享、附件导入/清理、桌面配色/通知、启动参数解析移入 platform；存储仓库不再导入 FormKit。主编辑与半模态共用 services/NoteService，错误分类与现有 JSON 兼容约定见 data-model.md。
+- 桌面入口使用 RouterMode.Single；当前顶部实例复用不会可靠重触发 onPageShow，因此路由成功后通过独立 AppStorage 信号要求当前可见编辑页重新读取目标参数。不同目标先保存旧草稿，所有异步图片/弹窗回调核对会话代号。
+- 半模态每个会话创建独立 LocalStorage，通过 session.loadContent 注入；页面使用 @Entry({ useSharedStorage: true }) 与 UIContext.getSharedLocalStorage 取得所属会话。SDK19 未提供可依赖的系统完成保存回调，采用常驻先保存提示，输入后标记尚未保存。
+- 皮肤选择面板采用显式底部定位，避免通用 align 属性未按预期布局而遮挡导航。动态背景接收 paused，页面隐藏/编辑/图片覆盖层暂停；原樱花落地停留后淡出。实际长时资源压力尚未测量。
+- 本轮设备验证与未覆盖场景见 integration-2026-11-11.md；UI树和截图在工程忽略的 build/verification，用户数据备份不提交。

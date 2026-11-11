@@ -1,6 +1,6 @@
-import { formInfo } from '@kit.FormKit';
-import { initializeDesktopRepository, desktopLink } from '../model/DesktopNoteRepository';
-import { syncDesktopNotes } from '../model/NoteStore';
+import { initializeDesktopRepository } from '../repository/DesktopNoteRepository';
+import { syncDesktopNotes } from '../repository/NoteRepository';
+import { desktopLaunchNoteId } from '../platform/NoteLaunch';
 import { AbilityConstant, ConfigurationConstant, UIAbility, Want } from '@kit.AbilityKit';
 import { hilog } from '@kit.PerformanceAnalysisKit';
 import { window } from '@kit.ArkUI';
@@ -8,30 +8,10 @@ import { window } from '@kit.ArkUI';
 const DOMAIN = 0x0000;
 
 export default class EntryAbility extends UIAbility {
-  private pendingNoteId: string = '';
-
   private receiveWant(want: Want): void {
     initializeDesktopRepository(this.context.filesDir);
     syncDesktopNotes();
-    this.pendingNoteId = typeof want.parameters?.['noteId'] === 'string' ? want.parameters['noteId'] as string : '';
-    const serialized = want.parameters?.['params'];
-    if (this.pendingNoteId === '' && typeof serialized === 'string') {
-      try {
-        const parameters = JSON.parse(serialized) as Record<string, string>;
-        if (typeof parameters.noteId === 'string') {
-          this.pendingNoteId = parameters.noteId;
-        }
-      } catch {
-        this.pendingNoteId = '';
-      }
-    }
-    if (this.pendingNoteId === '') {
-      const formId = want.parameters?.[formInfo.FormParam.IDENTITY_KEY];
-      if (formId !== undefined) {
-        this.pendingNoteId = desktopLink(String(formId))?.noteId ?? '';
-      }
-    }
-    AppStorage.setOrCreate('desktopLaunchNoteId', this.pendingNoteId);
+    AppStorage.setOrCreate('desktopLaunchNoteId', desktopLaunchNoteId(want));
   }
 
   onNewWant(want: Want, launchParam: AbilityConstant.LaunchParam): void {
