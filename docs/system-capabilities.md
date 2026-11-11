@@ -18,6 +18,7 @@
 | 系统纯文本分享 | ShareKit 的 systemShare.SharedData、ShareController.show 及 dismiss 事件，SDK 标注自 HarmonyOS 4.1.0(API 11) 支持，要求 SystemCapability.Collaboration.SystemShare，Stage 模型。纯文本类型来自 ArkData 的 uniformTypeDescriptor。 | platform/NoteShare.ets（pages/NoteEditor调用） | 空白内容先提示，打开失败提示稍后重试，防止重复打开，关闭时清理控制器监听。分享当前草稿，用户在系统面板选择接收应用。 | 当前连接设备已验证预览格式、取消、再次打开和未保存草稿。实际发送至接收应用、其他系统版本及设备尚未验证。 |
 | 输入与键盘收起 | ArkUI TextInput、TextArea 的 onEditChange，FocusController 的 requestFocus、clearFocus。具体成员版本要求升级时对照本地 SDK 声明核验。 | pages/NoteEditor.ets 的 inputEditingChanged、focusInput | 输入框结束编辑后延迟判断是否转移到另一输入区，避免焦点切换误退浏览态。键盘未弹出时可通过勾选结束编辑。 | 当前设备浮动键盘收起和标题/正文切换已验证，实体键盘及其他输入法尚未验证。 |
 | 删除确认与提示 | ArkUI UIContext.getPromptAction 的 showDialog、showToast。 | pages/NoteEditor.ets | 删除确认取消或对话框关闭时保留草稿，确认后通过NoteService执行删除；已持久笔记先写墓碑。 | 当前设备已验证取消和确认删除。 |
+| 首页视图设置 | ArkData Preferences：getPreferencesSync/getSync 读取，getPreferences/put/flush 写入；Stage 模型，本地 API19 声明可用。 | repository/NoteSettings.ets（pages/Index调用） | 读取缺失或异常回退瀑布；写入异常提示，本次运行选择仍生效；写入按顺序串行，仅保存 view_mode，不进入笔记数据。 | 当前设备验收菜单切换、名称更新、两种视图重启保留、快速连续切换、设置页跳转与返回；空列表、其他设备与视觉主观参数未验。详见[设置菜单与视图验收](archive/2026-11-12-settings-view-acceptance.md)。 |
 
 SDK 版本信息来自本机已安装 SDK 的声明文件。运行设备的系统版本、输入法版本和设备型号尚未形成完整测试矩阵，后续适配时补录，设备序列号不作为兼容性标识。
 

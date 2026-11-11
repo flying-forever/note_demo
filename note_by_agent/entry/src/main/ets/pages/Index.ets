@@ -1,10 +1,13 @@
-// 展示笔记分组与双列卡片列表，并处理页头滚动和编辑页跳转。
+// 展示笔记分组与瀑布/列表视图，并处理页头滚动、设置菜单和编辑页跳转。
 import { NoteCard } from '../components/NoteCard';
+import { NoteListItem } from '../components/NoteListItem';
 import { router } from '@kit.ArkUI';
+import { common } from '@kit.AbilityKit';
 import { TECH_DEMOS_ENABLED } from '../diagnostics/DemoCatalog';
 import { GROUP_ALL, GROUP_UNFILED, NOTE_GROUPS, Note, noteCardTitle } from '../model/Note';
 import { NoteEditorParams } from '../services/NoteService';
 import { listNotes, syncDesktopNotes, findNote } from '../repository/NoteRepository';
+import { VIEW_LIST, VIEW_WATERFALL, loadViewMode, saveViewMode } from '../repository/NoteSettings';
 
 const LARGE_TITLE_FONT_SIZE: number = 44;
 const HEADER_SLOT_HEIGHT: number = 56;
@@ -13,6 +16,13 @@ const COLLAPSE_DISTANCE: number = HEADER_SLOT_HEIGHT;
 const SEARCH_ROW_HEIGHT: number = 56;
 const SEARCH_SETTLE_DURATION: number = 180;
 const SEARCH_RELEASE_DELAY: number = 50;
+const SETTINGS_MENU_WIDTH: number = 200;
+const SETTINGS_MENU_ROW_HEIGHT: number = 56;
+const SETTINGS_MENU_TOP: number = 60;
+const SETTINGS_MENU_CORNER: number = 20;
+const SETTINGS_MENU_PADDING: number = 6;
+const SETTINGS_MENU_FONT_SIZE: number = 17;
+const SETTINGS_MENU_ICON_SIZE: number = 20;
 
 @Entry
 @Component
@@ -23,11 +33,23 @@ struct Index {
   @State searchProgress: number = 0;
   @State collapseProgress: number = 0;
   @State private allNotes: Note[] = listNotes();
+  @State private settingsMenuVisible: boolean = false;
+  @State private viewMode: string = VIEW_WATERFALL;
 
   private searchReleaseTimer: number = -1;
   private touchingList: boolean = false;
+  private disposed: boolean = false;
+  private viewSaveQueue: Promise<void> = Promise.resolve();
 
   private scroller: Scroller = new Scroller();
+
+  aboutToAppear(): void {
+    this.viewMode = loadViewMode(this.getUIContext().getHostContext() as common.UIAbilityContext);
+  }
+
+  aboutToDisappear(): void {
+    this.disposed = true;
+  }
 
   onPageShow(): void {
     syncDesktopNotes();
@@ -55,6 +77,31 @@ struct Index {
   private openEditor(id: string): void {
     const params: NoteEditorParams = { id: id, group: this.selectedGroup === GROUP_ALL || this.selectedGroup === GROUP_UNFILED ? '' : this.selectedGroup };
     this.getUIContext().getRouter().pushUrl({ url: 'pages/NoteEditor', params: params });
+  }
+
+  private viewLabel(): string {
+    return this.viewMode === VIEW_LIST ? '列表' : '瀑布';
+  }
+
+  private toggleViewMode(): void {
+    this.viewMode = this.viewMode === VIEW_LIST ? VIEW_WATERFALL : VIEW_LIST;
+    this.scroller.scrollTo({ xOffset: 0, yOffset: 0 });
+    this.persistViewMode(this.viewMode);
+  }
+
+  private persistViewMode(mode: string): void {
+    const context = this.getUIContext().getHostContext() as common.UIAbilityContext;
+    this.viewSaveQueue = this.viewSaveQueue.then(async () => {
+      if (!(await saveViewMode(context, mode)) && !this.disposed) {
+        this.getUIContext().getPromptAction().showToast({ message: '视图设置保存失败，本次运行内仍生效' });
+      }
+    }).catch(() => {});
+  }
+
+  private openSettings(): void {
+    this.settingsMenuVisible = false;
+    this.getUIContext().getRouter().pushUrl({ url: 'pages/Settings' })
+      .catch(() => this.getUIContext().getPromptAction().showToast({ message: '无法打开设置页' }));
   }
 
   private notes(): Note[] {
@@ -187,7 +234,7 @@ struct Index {
           .height(44)
           .justifyContent(FlexAlign.Center)
           .onClick(() => {
-            this.getUIContext().getPromptAction().showToast({ message: '设置页待实现' });
+            this.settingsMenuVisible = true;
           })
           .priorityGesture(LongPressGesture().onAction(() => {
             if (TECH_DEMOS_ENABLED) {
@@ -333,6 +380,22 @@ struct Index {
   }
 
   @Builder
+  NoteRowItem(item: Note) {
+    Column() {
+      NoteListItem({
+        title: noteCardTitle(item),
+        summary: item.content.trim(),
+        timeLabel: item.timeLabel,
+        skinId: item.skinId ?? 'white'
+      })
+    }
+    .width('100%')
+    .onClick(() => {
+      this.openEditor(item.id);
+    })
+  }
+
+  @Builder
   EmptyView() {
     Column() {
       Text('还没有笔记')
@@ -362,6 +425,14 @@ struct Index {
       Column() {
         if (this.notes().length === 0) {
           this.EmptyView()
+        } else if (this.viewMode === VIEW_LIST) {
+          Column({ space: 12 }) {
+            ForEach(this.notes(), (item: Note) => {
+              this.NoteRowItem(item)
+            }, (item: Note) => JSON.stringify(item))
+          }
+          .width('100%')
+          .padding({ top: 4, bottom: 96 })
         } else {
           Row({ space: 12 }) {
             Column({ space: 12 }) {
@@ -416,6 +487,65 @@ struct Index {
     })
   }
 
+  @Builder
+  ViewModeRow() {
+    Row({ space: 10 }) {
+      Image($r('app.media.ic_switch'))
+        .width(SETTINGS_MENU_ICON_SIZE)
+        .height(SETTINGS_MENU_ICON_SIZE)
+      Text(this.viewLabel())
+        .fontSize(SETTINGS_MENU_FONT_SIZE)
+        .fontWeight(FontWeight.Medium)
+        .fontColor($r('app.color.text_primary'))
+    }
+    .width('100%')
+    .height(SETTINGS_MENU_ROW_HEIGHT)
+    .padding({ left: 20, right: 20 })
+    .accessibilityText('切换视图，当前' + this.viewLabel())
+    .onClick(() => this.toggleViewMode())
+  }
+
+  @Builder
+  MoreRow() {
+    Row() {
+      Text('更多')
+        .fontSize(SETTINGS_MENU_FONT_SIZE)
+        .fontWeight(FontWeight.Medium)
+        .fontColor($r('app.color.text_primary'))
+      Blank()
+      Text('›')
+        .fontSize(SETTINGS_MENU_FONT_SIZE)
+        .fontColor($r('app.color.text_tertiary'))
+    }
+    .width('100%')
+    .height(SETTINGS_MENU_ROW_HEIGHT)
+    .padding({ left: 20, right: 20 })
+    .accessibilityText('更多设置')
+    .onClick(() => this.openSettings())
+  }
+
+  @Builder
+  SettingsMenu() {
+    Column() {
+      this.ViewModeRow()
+      this.MoreRow()
+    }
+    .width(SETTINGS_MENU_WIDTH)
+    .padding(SETTINGS_MENU_PADDING)
+    .backgroundColor($r('app.color.card_bg'))
+    .borderRadius(SETTINGS_MENU_CORNER)
+    .margin({ top: SETTINGS_MENU_TOP, right: 16 })
+    .shadow({ radius: 12, color: '#33000000', offsetX: 0, offsetY: 4 })
+  }
+
+  onBackPress(): boolean {
+    if (this.settingsMenuVisible) {
+      this.settingsMenuVisible = false;
+      return true;
+    }
+    return false;
+  }
+
   build() {
     Stack({ alignContent: Alignment.BottomEnd }) {
       Column() {
@@ -463,6 +593,21 @@ struct Index {
           this.getUIContext().getPromptAction().showToast({ message: '新建待办待实现' });
         }
       })
+
+      if (this.settingsMenuVisible) {
+        Stack({ alignContent: Alignment.TopEnd }) {
+          Column()
+            .width('100%')
+            .height('100%')
+            .backgroundColor('#33000000')
+            .onClick(() => {
+              this.settingsMenuVisible = false;
+            })
+          this.SettingsMenu()
+        }
+        .width('100%')
+        .height('100%')
+      }
     }
     .width('100%')
     .height('100%')
