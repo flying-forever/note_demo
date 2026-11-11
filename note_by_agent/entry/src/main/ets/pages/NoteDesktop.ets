@@ -3,7 +3,8 @@ import { formBindingData } from '@kit.FormKit';
 import { BusinessError } from '@kit.BasicServicesKit';
 import { DesktopNoteView } from '../components/DesktopNoteView';
 import { NoteEditorParams } from '../model/NoteStore';
-import { readDesktopNote, desktopCardData, DesktopCardData, bindDesktopForm, refreshDesktopForm } from '../model/DesktopNoteRepository';
+import { readDesktopNote, bindDesktopForm } from '../repository/DesktopNoteRepository';
+import { desktopCardData, DesktopCardData, refreshDesktopForm } from '../platform/DesktopCards';
 
 const PREVIEW_ID: string = 'note-desktop-preview';
 const PREVIEW_SIZE: number = 180;

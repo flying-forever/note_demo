@@ -1,7 +1,8 @@
 import { FormExtensionAbility, formBindingData, formInfo } from '@kit.FormKit';
 import { Want } from '@kit.AbilityKit';
-import { initializeDesktopRepository, bindDesktopForm, readDesktopNote, desktopCardData,
-  desktopLink, refreshDesktopForm, removeDesktopForm } from '../model/DesktopNoteRepository';
+import { initializeDesktopRepository, bindDesktopForm, readDesktopNote,
+  desktopLink, removeDesktopForm } from '../repository/DesktopNoteRepository';
+import { desktopCardData, refreshDesktopForm } from '../platform/DesktopCards';
 
 export default class NoteFormAbility extends FormExtensionAbility {
   onAddForm(want: Want): formBindingData.FormBindingData {

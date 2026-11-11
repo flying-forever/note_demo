@@ -1,21 +1,22 @@
-import { desktopEditStorage } from '../model/DesktopEditStorage';
 import { UIExtensionContentSession } from '@kit.AbilityKit';
 import { formBindingData, formProvider } from '@kit.FormKit';
-import { BodyBlock, documentText, textBlock } from '../model/NoteDocument';
+import { BodyBlock, textBlock } from '../model/NoteDocument';
 import { Note } from '../model/Note';
-import { desktopLink, readDesktopNote, persistDesktopNote, refreshDesktopCards, desktopCardData } from '../model/DesktopNoteRepository';
+import { desktopLink, readDesktopNote } from '../repository/DesktopNoteRepository';
+import { desktopCardData } from '../platform/DesktopCards';
+import { saveNoteDraft, snapshotNote } from '../services/NoteService';
 
 const EDIT_PADDING: number = 12;
 const EDIT_FONT_SIZE: number = 16;
 const PREVIEW_REFRESH_DELAY: number = 300;
 const PREVIEW_REFRESH_ATTEMPTS: number = 3;
 
-@Entry(desktopEditStorage)
+@Entry({ useSharedStorage: true })
 @Component
 struct DesktopNoteEdit {
   @LocalStorageProp('formId') private formId: string = '';
   @LocalStorageProp('previewFormId') private previewFormId: string = '';
-  private session: UIExtensionContentSession | undefined = desktopEditStorage.get<UIExtensionContentSession>('editSession');
+  private session?: UIExtensionContentSession;
   @State private title: string = '';
   @State private blocks: BodyBlock[] = [];
   @State private available: boolean = false;
@@ -27,9 +28,15 @@ struct DesktopNoteEdit {
   private disposed: boolean = false;
 
   aboutToAppear(): void {
-    const link = desktopLink(this.formId);
-    this.original = link ? readDesktopNote(link.noteId) : undefined;
-    this.originalSnapshot = JSON.stringify(this.original);
+    this.disposed = false;
+    this.session = this.getUIContext().getSharedLocalStorage()?.get<UIExtensionContentSession>('editSession');
+    try {
+      const link = desktopLink(this.formId);
+      this.original = link ? readDesktopNote(link.noteId) : undefined;
+    } catch {
+      this.original = undefined;
+    }
+    this.originalSnapshot = snapshotNote(this.original);
     this.title = this.original?.title ?? '';
     this.blocks = this.original?.blocks ?? [textBlock(this.original?.content ?? '')];
     this.available = this.original !== undefined;
@@ -51,7 +58,7 @@ struct DesktopNoteEdit {
         await formProvider.updateForm(this.previewFormId,
           formBindingData.createFormBindingData(desktopCardData(this.original)));
       } catch {
-        if (attempt === PREVIEW_REFRESH_ATTEMPTS - 1) {
+        if (!this.disposed && this.status === '' && attempt === PREVIEW_REFRESH_ATTEMPTS - 1) {
           this.status = '预览暂未更新，保存时将重新刷新';
         }
       }
@@ -70,32 +77,35 @@ struct DesktopNoteEdit {
     if (!original || this.saving) {
       return;
     }
-    if (!this.title.trim() && !documentText(this.blocks).trim() && !this.blocks.some((block: BodyBlock) => block.imageId !== '')) {
-      this.status = '请填写标题或正文';
-      return;
-    }
     this.saving = true;
+    clearTimeout(this.previewTimer);
     try {
-      if (JSON.stringify(readDesktopNote(original.id)) !== this.originalSnapshot) {
-        this.status = '笔记已更新，请关闭后重新编辑';
+      const result = saveNoteDraft({ id: original.id, group: original.group, title: this.title,
+        blocks: this.blocks, images: original.images ?? [], skinId: original.skinId,
+        expectedSnapshot: this.originalSnapshot });
+      if (result.status !== 'saved' || !result.note) {
+        this.status = result.status === 'empty' ? '请填写标题或正文' :
+          (result.status === 'conflict' ? '笔记已更新，请关闭后重新编辑' :
+            (result.status === 'deleted' ? '笔记已删除，请关闭编辑' : '保存失败，请重试'));
         return;
       }
-      const now = new Date();
-      const note: Note = { id: original.id, title: this.title, content: documentText(this.blocks),
-        blocks: this.blocks, images: original.images, skinId: original.skinId, group: original.group,
-        timeLabel: `${now.getMonth() + 1}月${now.getDate()}日 ${now.getHours().toString().padStart(2, '0')}:${now.getMinutes().toString().padStart(2, '0')}` };
-      persistDesktopNote(note);
+      const note = result.note;
       this.original = note;
-      this.originalSnapshot = JSON.stringify(note);
-      await refreshDesktopCards(note.id);
-      if (this.previewFormId) {
-        await formProvider.updateForm(this.previewFormId, formBindingData.createFormBindingData(desktopCardData(note)));
-      }
+      this.originalSnapshot = snapshotNote(note);
       this.status = '已保存';
-    } catch {
-      this.status = '保存或卡片刷新失败，请重试';
+      if (this.previewFormId) {
+        try {
+          await formProvider.updateForm(this.previewFormId, formBindingData.createFormBindingData(desktopCardData(note)));
+        } catch {
+          if (!this.disposed && this.status === '已保存') {
+            this.status = '已保存，预览暂未更新';
+          }
+        }
+      }
     } finally {
-      this.saving = false;
+      if (!this.disposed) {
+        this.saving = false;
+      }
     }
   }
 
@@ -107,9 +117,14 @@ struct DesktopNoteEdit {
         Button('保存').enabled(this.available && !this.saving).onClick(() => this.save())
       }.width('100%')
       if (this.available) {
+        Text('修改后请先点“保存”，再点系统“完成”；直接关闭不会保存。')
+          .fontSize(12).fontColor($r('app.color.text_secondary')).width('100%')
         TextInput({ text: this.title, placeholder: '标题' })
           .id('desktop-edit-title').fontSize(EDIT_FONT_SIZE)
-          .onChange((value: string) => { this.title = value; })
+          .onChange((value: string) => {
+            this.title = value;
+            this.status = '尚未保存，请点击“保存”';
+          })
         Scroll() {
           Column({ space: EDIT_PADDING }) {
             ForEach(this.blocks, (block: BodyBlock) => {
@@ -120,6 +135,7 @@ struct DesktopNoteEdit {
                   .onChange((value: string) => {
                     this.blocks = this.blocks.map((item: BodyBlock) => item.id === block.id ?
                       { id: item.id, text: value, imageId: '' } : item);
+                    this.status = '尚未保存，请点击“保存”';
                   })
               } else {
                 Text('图片已保留').fontSize(12).fontColor($r('app.color.text_secondary'))
