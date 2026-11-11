@@ -4,7 +4,7 @@
 
 `model/Note.ets` 使用 `id`、`title`、`content`、`timeLabel`、`group`。首页从正文生成卡片预览，初始时间沿用假数据的展示文本。`repository/NoteRepository.ets` 管理进程内已提交数据，`services/NoteService.ets` 统一业务保存，`viewmodel/NoteEditorSession.ets` 持有主编辑页唯一草稿及历史。原 NoteStore 与 model 层 DesktopNoteRepository 转发入口已移除。
 
-可选字段 `skinId` 保存笔记皮肤标识，缺失或未知时按默认白显示。`model/NoteSkin.ets` 集中定义皮肤配色，供后续接入素材。移动文件夹及保存正文保留皮肤设置。
+可选字段 `skinId` 保存笔记皮肤标识，缺失或未知时按默认白显示。`model/NoteSkin.ets` 集中定义当前12款皮肤配色与effect。移动文件夹及保存正文保留皮肤设置。
 
 ## 当前图文正文
 
@@ -26,63 +26,26 @@
 
 数据层回归命令：`node scripts/test-desktop-notes.cjs`。脚本使用本机 DevEco 的 TypeScript 编译器；其他环境通过 DEVECO_TYPESCRIPT_PATH 指定 typescript.js。该检查验证选择性保存、应用重启、图片引用、移动/皮肤、写入失败、跨实例更新、多卡片与删除标记，UI 和系统能力仍需真机验收。
 
-## 样式和图片的扩展方向
+## 当前字段契约
 
-- 确定样式范围后，可把纯文本正文迁移为带版本的文档。段落中的文本片段可附带加粗等样式，段落与图片可按插入顺序排列。旧纯文本可转成普通段落，保留换行。
-- 图片正文节点保存附件 ID。接入持久化时，由应用管理图片文件和引用，在保存、删除时处理文件生命周期。
-- 首页摘要和未来的搜索文本从正文提取。加入图片后，判断空笔记时也要检查图片节点，只有图片的笔记可以保存。
-
-## 候选模型
-
-以下字段、默认排序和持久化方案供后续阶段确认。
-
-## Note（笔记）
-
-| 字段 | 类型 | 说明 |
+| 类型 | 字段 | 语义 |
 | --- | --- | --- |
-| `id` | string | 唯一标识 |
-| `title` | string | 标题（可为空，界面回退为正文首行） |
-| `content` | string | 正文纯文本 |
-| `createdAt` | number | 创建时间戳 |
-| `updatedAt` | number | 更新时间戳 |
-| `pinned` | boolean | 是否置顶 |
-| `folderId` | string \| null | 所属文件夹，null 为默认 |
-| `group` | string \| null | 首页分组名称（旅途/美食/攻略/随记） |
-| `color` | string \| null | 标签/卡片颜色，可空 |
-| `deleted` | boolean | 回收站标记 |
+| Note | id/title/content/timeLabel/group | string；group空字符串为未分类，无folderId关系表 |
+| Note | skinId?/blocks?/images? | 可选；缺失皮肤默认白，旧content转文字块 |
+| BodyBlock | id/text/imageId | string；imageId为空表示文字，否则引用附件 |
+| NoteImage | id/path/name/caption | string；path为应用私有文件 |
+| NoteImage | width/height/bytes/small | number/number/number/boolean |
+| DesktopRecord | version/id/deleted/note? | version当前1；墓碑不等于回收站 |
+| DesktopFormLink | formId/noteId | string/string，一卡一个关联文件 |
 
-## TodoItem（待办项）
+当前timeLabel是展示文本，新保存为月日时分，无createdAt/updatedAt时间戳。保存前置笔记，移动/换肤保持顺序；启动合入JSON记录，不是按更新时间排序。当前无置顶、回收站、独立Folder/TodoItem、标签表。
 
-| 字段 | 类型 | 说明 |
-| --- | --- | --- |
-| `id` | string | 唯一标识 |
-| `noteId` | string | 所属待办笔记 |
-| `text` | string | 内容 |
-| `done` | boolean | 是否完成 |
-| `order` | number | 排序 |
+标题为空取正文首个非空行，纯图片显示「图片笔记」；纯图片可保存。字数为正文去空白后码点数，含标点，不含标题和描述。删除仅对已有JSON记录写墓碑；未持久化样例删除是进程内行为，重启可能恢复。JSON读取主要校验version、记录ID和note ID，损坏记录可能抛错，不提供自动修复或完整schema迁移。
 
-## Folder（文件夹）
+## 后续契约与未决定事项
 
-| 字段 | 类型 | 说明 |
-| --- | --- | --- |
-| `id` | string | 唯一标识 |
-| `name` | string | 名称 |
-| `createdAt` | number | 创建时间戳 |
-| `order` | number | 排序 |
+已确认关系型数据库、有序正文块、附件目录和小型设置存储方向，统一选择性JSON，支持10万字按需读写/渲染、草稿及可关闭的位置恢复；尚未成为正式实现。候选字段、迁移和验收统一见[持久化计划](plans/persistence-plan.md)，不在当前契约预设建表和排序。
 
-## 排序规则（默认）
+仍需产品决定：回收站、标签/文件夹管理扩展、相对日期格式、富文本样式范围。现有分组展示和空分组语义已确定。职责与状态见[架构](architecture.md)。
 
-1. 置顶优先
-2. `updatedAt` 倒序
-
-## 持久化方案（已确认，待开发）
-
-采用本地关系型数据库与附件目录，正文文字直接存于有序正文块记录，一条笔记关联多个块。设置采用小型键值存储。首页摘要独立读取，正文支持范围读取、增量写入及 10 万字按需渲染。现有桌面笔记 JSON 需要迁入统一数据源，保留多入口冲突保护。
-
-支持自动草稿恢复和可关闭的上次编辑位置恢复；后者以浏览态定位，不弹键盘。分块、保存、迁移与验收计划见 [本地持久化与长笔记开发计划](persistence-plan.md)。上文当前实现保持为现状记录，候选字段不代表最终建表结构。
-
-## 待确认
-
-- [ ] 是否需要回收站
-- [ ] 是否需要标签/文件夹（首页是否展示）
-- [ ] 时间显示格式（今天 HH:mm / 昨天 / 日期）
+早期未定稿的Folder/TodoItem候选字段及排序设想仅保留于[候选历史](archive/2026-11-12-data-model-proposals.md)，不作为当前实现或正式数据库设计。

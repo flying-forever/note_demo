@@ -1,114 +1,42 @@
-# AGENTS.md
+# 协作约定
 
-本文件记录协作约定，供每次开始工作前阅读。
+## 项目与入口
 
-## 项目概况
-
-- 项目：小米笔记（简化复刻 demo）
-- 工程根目录：`note_by_agent/`（ArkTS 鸿蒙项目）
-- 素材目录：`picture/`（设计参考截图）
-- 协作文档：`docs/`
-
-## 技术栈与环境
-
-- 语言：ArkTS / ArkUI 声明式 UI
-- 模型：Stage 模型
-- SDK：HarmonyOS 5.1.1(19)，`targetSdkVersion` = `compatibleSdkVersion` = 5.1.1(19)
-- 包名：`com.example.note_by_agent`
-- 模块：`entry`（唯一 entry 模块）
-- 当前入口页：`entry/src/main/ets/pages/Index.ets`（`pages/Index`）
-- 测试：`@ohos/hypium` + `@ohos/hamock`
-- 构建/预览：DevEco Studio Build / Previewer，或下面的命令行（工程未检出 hvigorw 包装脚本）
-
-## 构建与运行（命令行，已验证）
-
-本机 DevEco 安装在 `E:\Softs\Huawei\DevEco Studio`（以下路径为本机专用，换机需调整）。
-
-```powershell
-# 1. 必需环境变量，否则报 00303217 Configuration Error
-$env:DEVECO_SDK_HOME = "E:\Softs\Huawei\DevEco Studio\sdk"
-
-# 2. 签名需用 DevEco 自带 JBR，否则系统 JDK 17.0.8 会报 Invalid CEN header
-$env:PATH = "E:\Softs\Huawei\DevEco Studio\jbr\bin;" + $env:PATH
-
-# 2. 构建（在 note_by_agent/ 下执行）
-& "E:\Softs\Huawei\DevEco Studio\tools\hvigor\bin\hvigorw.bat" `
-  --mode module -p product=default -p module=entry@default -p buildMode=debug `
-  assembleHap --no-daemon
-
-# 3. 安装
-& "E:\Softs\Huawei\DevEco Studio\sdk\default\openharmony\toolchains\hdc.exe" `
-  install -r "entry\build\default\outputs\default\entry-default-signed.hap"
-
-# 4. 启动
-& "E:\Softs\Huawei\DevEco Studio\sdk\default\openharmony\toolchains\hdc.exe" `
-  shell aa start -b com.example.note_by_agent -a EntryAbility
-
-# 查看已连接设备（设备序列号会变，勿硬编码）
-& "E:\Softs\Huawei\DevEco Studio\sdk\default\openharmony\toolchains\hdc.exe" list targets
-```
-
-- 产物：`entry/build/default/outputs/default/entry-default-signed.hap`
-- 改完代码先命令行构建自检，再让用户在 DevEco 查看效果。
-- 运行时需要有已连接的设备/模拟器。
-
-### 布局坐标校验（无需看图）
-
-应用在前台时，可导出 UI 树查真实坐标/尺寸：
-
-```powershell
-& $hdc shell uitest dumpLayout -p /data/local/tmp/layout.json
-& $hdc file recv /data/local/tmp/layout.json "C:\Users\ThinkPad\AppData\Local\Temp\opencode\layout.json"
-```
-
-用 Node 解析 JSON，比用 PowerShell `ConvertFrom-Json` 稳（后者可能因重复键失败）。
-
-## 目录约定
-
-```
-note_by_agent/entry/src/main/ets/
-  entryability/        Ability 入口
-  pages/               页面（@Entry）
-  components/          可复用组件
-  model/               数据模型与假数据
-  viewmodel/           编辑会话与草稿历史状态
-  services/            保存、删除、移动与换肤业务入口
-  repository/          内存与选择性 JSON 存储
-  platform/            分享、附件文件、桌面通知与启动适配
-  common/              常量、工具（按需新建）
-```
+- 小米笔记简化复刻 demo，工程在 note_by_agent/，设计参考在 picture/，协作文档在 docs/。
+- ArkTS / ArkUI、Stage 模型；HarmonyOS 5.1.1(API19)，唯一 entry 模块；包名 com.example.note_by_agent。
+- 接手先读[项目进度](docs/progress.md)，再按任务读取当前规格。构建、安装和设备命令见[开发指南](docs/development.md)。
+- 用户的.md 是用户个人备忘，只读；未经明确授权不编辑或重新组织它。
 
 ## 代码约定
 
-- 一个页面一个 `.ets` 文件，`@Entry @Component struct Xxx`。
-- 可复用 UI 抽到 `components/`，命名 `XxxView` / `XxxItem`。
-- 颜色、字号、间距优先集中在 `resources/base/element/` 或 `common/` 常量中，禁止到处写魔法值。
-- 资源引用用 `$r('app.color.xxx')` / `$r('app.string.xxx')`。
-- 状态用 `@State` / `@Prop` / `@Link`，跨页传参用 `router` 或 `AppStorage`。
-- `ForEach` 使用稳定 key 时，复用节点不能依赖已被替换的旧 item 对象；可变显示值按 ID 读取当前状态，或采用可观察对象与子组件绑定。不要把输入内容加入 key 来强制重建输入框。相关排查与真机回归见 `docs/system-capabilities.md` 的「接入经验」。
-- 缩进 2 空格。
-- ArkUI 属性动画要显式隔离作用范围。仅旋转循环时，在宽高等布局属性后设置 `.animation(null)`，再设置 `.rotate(...).animation(...)`，避免窗口测量或切换尺寸触发无限宽高动画。排查与真机验证见 `docs/system-capabilities.md` 的「接入经验」。
-- 除非明确要求，不写注释。
+- 每个受维护代码文件顶部用1～2行简短注释说明职责；保留许可证与shebang。除必要说明或明确要求外，不增加其他注释。
+- 两空格缩进；页面放 pages/，复用UI放 components/，名称沿用 XxxView / XxxItem。
+- 模型、编辑会话、业务入口、存储和平台适配按[架构说明](docs/architecture.md)划分；不复制保存规则或维护两份权威草稿。
+- 颜色、字号、间距优先集中管理；资源使用 $r 引用。ArkUI状态按 @State / @Prop / @Link 等绑定约定处理。
+- 稳定列表key不代表对象绑定会自动更新；正文按ID读取最新状态，不以输入文字作为key强制重建。动画不得将布局尺寸混入无限循环。细节见[系统能力与接入约束](docs/system-capabilities.md)。
 
-## 协作流程
+## 工作流程
 
-1. 每次只做一个页面或一个功能闭环。
-2. 先对齐需求（用户口头描述布局/交互），同步更新 `docs/pages.md`。
-3. 实现时尽量少改文件，完成后列出改动清单。
-4. 我优先用命令行构建自检；用户在 DevEco Studio 运行并把视觉/完整报错原样贴回。
-5. 视觉差异由用户反馈，逐条修正。
-6. 不自动执行 git commit / push，除非用户明确要求。
-   提交消息使用 `feat: ...` / `fix: ...` 等格式，不添加 `(codex-gpt)` 标注。
-7. 设计不确定时先问，不自行臆造。
+1. 每次完成一个页面或功能闭环；设计不明确时先对齐，不自行补造产品需求。
+2. 变更前核对当前规格，变更后更新对应权威文档。新结论直接修正当前正文，旧过程归档，不靠文末追加覆盖旧规则。
+3. 少改无关文件。功能代码修改后命令行构建并按风险验证；文档/文件头注释调整检查链接、内容差异及必要构建即可，不使用真机。
+4. 单台真机由协调者串行调度；不同Agent采用互不重叠的文件范围。未经用户授权不安装依赖、清空数据或扩大工作目录。
+5. 不以构建或模型检查替代真实输入法、焦点和宿主流程验证；未验证场景写入项目进度，不宣称已通过。
+6. 未经用户明确授权不执行 git commit / push。已获授权时按闭环提交，消息用 feat: / fix: / docs: 等格式，不加模型标注。
 
-## 阶段目标
+## 文档职责
 
-当前阶段、下一步和待修问题见 [项目进度](docs/progress.md)。
+| 文档 | 维护内容 |
+| --- | --- |
+| [项目进度](docs/progress.md) | 唯一当前状态、下一步与未验收清单 |
+| [页面规格](docs/pages.md) | 当前产品行为、入口和占位功能 |
+| [设计规范](docs/design.md) | 当前视觉基线与适配边界 |
+| [数据模型](docs/data-model.md) | 当前字段、保存及兼容契约 |
+| [架构说明](docs/architecture.md) | 模块依赖、状态所有者、数据路径 |
+| [系统能力](docs/system-capabilities.md) | API要求、失败处理和稳定接入经验 |
+| [开发指南](docs/development.md) | 本机环境、命令与证据管理 |
+| [持久化计划](docs/plans/persistence-plan.md) | 未完成阶段、依赖与验收门槛 |
+| [技术实验现状](docs/technical-demos.md) | 最新实验结论、决策与待验证问题 |
+| docs/archive/ | 带日期的过程、旧计划与验证证据；不作为当前规格 |
 
-## 文档索引
-
-- `docs/design.md`：设计规范（色值、字号、间距）
-- `docs/pages.md`：页面规格
-- `docs/data-model.md`：数据模型
-- `docs/progress.md`：当前进度、下一步、待修问题与历史记录
-- `docs/system-capabilities.md`：系统能力、接口要求、失败处理与兼容性验证记录，接入或调整系统能力时同步更新。
+历史文件注明记录日期或归档日期。详细实验数据只在相应记录维护一次，其他文档引用结论与链接。候选设计不能混入当前数据契约；个人备忘不作为正式文档维护对象。

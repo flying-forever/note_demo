@@ -1,37 +1,40 @@
 # 系统能力与兼容性记录
 
-## 技术验证中的能力（未验收）
+## 实验能力（未接入正式数据）
 
-原生编辑试验新增 RichEditorStyledStringController、StyledString/TextStyle/StyleOptions 和 UIContext.postFrameCallback/FrameCallback.onIdle、LayoutManager.getLineCount，已按本地 API 19 声明构建。StyledString 的字体长度使用 LengthMetrics.vp。帧回调以试验代次忽略过期样本，离页时失效；不读取真实笔记。当前批量方式虽完成编辑功能检查，但高内存和一次 RssThresholdKiller 退出使稳定性不通过；整段控制器路径也未改善密集多段表现。设备内存用 hidumper --mem 采样 PSS，退出类型用 hidumper -e --list 核对。空闲帧回调不等于像素呈现，样本不代表全设备兼容性。详见技术实验室第四轮。
+| 实验 | API与调用位置 | 失败边界与验收状态 |
+| --- | --- | --- |
+| 长文分块 | pages/LongDocumentDemo；List、LazyForEach/IDataSource、Scroller.scrollToIndex、TextArea | 临时合成数据；基础冒烟不等于跨块选择、真实输入法、精确定位与性能验收 |
+| 数据库 | diagnostics/DatabaseProbe及pages/DatabaseDemo；ArkData relationalStore、条件update、事务、ResultSet/句柄close | 仅tech_demo_stage1.db，finally关闭结果集，结束释放句柄、防重复与运行中返回；同进程双句柄不等于真实跨扩展并发，损坏/磁盘满未验收 |
+| 原生编辑 | pages/NativeEditorDemo；RichEditorController、RichEditorStyledStringController、StyledString、LayoutManager、UIContext.postFrameCallback | 本地API19核对；默认不聚焦键盘。帧空闲不等于像素呈现，批量路径高内存及一次RssThresholdKiller退出使稳定性不通过；不能用于正式性能通过结论 |
 
-独立 NativeEditorDemo 使用 RichEditorController 与原生选区、片段读取、删除、光标定位及复制/粘贴事件；本地 API 19 声明核对及 ArkTS 构建通过。已记录设备通过四种合成文本场景的控制器选区与系统按键复制/粘贴/删除检查；用户于 2026-11-09 确认当前 10 万字试验的中文预输入、选词、退格及收起键盘正常；手指拖选、无障碍、图片与复杂 Unicode 仍未验证。10 万密集多段逐片段导入约一秒以上，不能作为性能通过记录。默认 enableKeyboardOnFocus(false)，可手动开启键盘，未影响正式编辑器。
-
-独立 DatabaseDemo 已使用 ArkData relationalStore 的 getRdbStore、querySql、RdbPredicates 条件 update、beginTransaction/commit/rollBack 和 close；接口按本地 API 19 声明及 ArkTS 构建核对。本机已记录设备通过分块范围读取、同进程双句柄版本竞争、事务失败回滚、关闭重开和应用进程重启恢复。ResultSet 在 finally 关闭；数据库句柄结束时关闭，运行中防重复提交与返回；异常显示失败。仅使用 tech_demo_stage1.db，不访问正式数据。跨扩展真实并发、损坏/磁盘满和其他系统设备未验收；不将本结果扩大为正式持久化已接通。详情见 technical-demos.md 第二轮记录。
-
-独立长文实验页使用 List、LazyForEach/IDataSource、Scroller.scrollToIndex 和 TextArea。已核对本地目标 SDK 声明，构建及 DMG-W00 上的基础浏览、块跳转、单块命令输入冒烟检查通过；跨块选择、真实输入法、精确定位及性能未验收。设置入口使用 44vp 容器与 LongPressGesture 优先手势，修复原 22vp 区域长按未触发实验入口。数据库独立试验结果见上文，未接入正式存储。详见 [技术实验室](technical-demos.md)。
-
+实验现状、输入法/选择/Unicode未覆盖项见[技术实验室](technical-demos.md)，轮次数据和排查过程见[实验历史](archive/2026-11-12-technical-demos.md)。
 当前工程目标与兼容 SDK 为 HarmonyOS 5.1.1(19)。新增系统能力时，在此记录接口要求、调用位置、失败处理及验证范围。升级 SDK 或更换设备时，按本表回归验证。
 
 ## 已接入能力
 
 | 能力 | 接口与要求 | 调用位置 | 失败处理及边界 | 验证情况 |
 | --- | --- | --- | --- | --- |
-| 系统纯文本分享 | ShareKit 的 systemShare.SharedData、ShareController.show 及 dismiss 事件，SDK 标注自 HarmonyOS 4.1.0(API 11) 支持，要求 SystemCapability.Collaboration.SystemShare，Stage 模型。纯文本类型来自 ArkData 的 uniformTypeDescriptor。 | pages/NoteEditor.ets 的 shareNote | 空白内容先提示，打开失败提示稍后重试，防止重复打开，关闭时清理控制器监听。分享当前草稿，用户在系统面板选择接收应用。 | 当前连接设备已验证预览格式、取消、再次打开和未保存草稿。实际发送至接收应用、其他系统版本及设备尚未验证。 |
+| 系统纯文本分享 | ShareKit 的 systemShare.SharedData、ShareController.show 及 dismiss 事件，SDK 标注自 HarmonyOS 4.1.0(API 11) 支持，要求 SystemCapability.Collaboration.SystemShare，Stage 模型。纯文本类型来自 ArkData 的 uniformTypeDescriptor。 | platform/NoteShare.ets（pages/NoteEditor调用） | 空白内容先提示，打开失败提示稍后重试，防止重复打开，关闭时清理控制器监听。分享当前草稿，用户在系统面板选择接收应用。 | 当前连接设备已验证预览格式、取消、再次打开和未保存草稿。实际发送至接收应用、其他系统版本及设备尚未验证。 |
 | 输入与键盘收起 | ArkUI TextInput、TextArea 的 onEditChange，FocusController 的 requestFocus、clearFocus。具体成员版本要求升级时对照本地 SDK 声明核验。 | pages/NoteEditor.ets 的 inputEditingChanged、focusInput | 输入框结束编辑后延迟判断是否转移到另一输入区，避免焦点切换误退浏览态。键盘未弹出时可通过勾选结束编辑。 | 当前设备浮动键盘收起和标题/正文切换已验证，实体键盘及其他输入法尚未验证。 |
-| 删除确认与提示 | ArkUI UIContext.getPromptAction 的 showDialog、showToast。 | pages/NoteEditor.ets | 删除确认取消或对话框关闭时保留草稿，确认后才执行内存删除。 | 当前设备已验证取消和确认删除。 |
+| 删除确认与提示 | ArkUI UIContext.getPromptAction 的 showDialog、showToast。 | pages/NoteEditor.ets | 删除确认取消或对话框关闭时保留草稿，确认后通过NoteService执行删除；已持久笔记先写墓碑。 | 当前设备已验证取消和确认删除。 |
 
 SDK 版本信息来自本机已安装 SDK 的声明文件。运行设备的系统版本、输入法版本和设备型号尚未形成完整测试矩阵，后续适配时补录，设备序列号不作为兼容性标识。
 
-## 图片选择与附件（第 6 步）
+## 图片选择与附件
+
+调用位置：pages/NoteEditor.ets编排选择；platform/NoteAttachments.ets导入、解码及清理；viewmodel/NoteEditorSession.ets维护正文引用。
 
 - 使用 MediaLibraryKit 的 photoAccessHelper.PhotoViewPicker.select，IMAGE_TYPE，maxSelectNumber=1。本地 SDK 声明 PhotoViewPicker 自 API 10 提供，当前目标 API 19。系统选择器让用户选择单张图片，不申请全库读取权限，不接入相机。
 - 使用 CoreFileKit 的 fileIo 打开选择结果 URI，将文件复制到 UIAbilityContext.filesDir/note-images；文件句柄在 finally 关闭。ImageKit ImageSource 读取宽高后释放。图片加载使用应用私有文件。
 - 用户取消且没有返回图片时保持草稿；选择、复制或解码失败提示重新选择，并清理复制失败的文件；等待选择时防重复点击。
 - 私有附件目录先通过 accessSync 检查，不存在时才 mkdirSync，避免已存在目录错误。正文光标只接受当前激活输入框的选区回调。
-- 插入与删除可撤销，离页后清理没有笔记引用的本轮附件，不触及相册文件。笔记持久化尚未接入，进程重启后图片文件保留但笔记不恢复；跨进程孤立附件清理待统一实现。
+- 插入与删除可撤销，离页后清理没有笔记引用的本轮附件，不触及相册文件。普通笔记仍为内存，重启不恢复；发送预览后的笔记已有选择性JSON并保留图片引用，跨进程孤立附件清理待统一实现。
 - 构建及当前连接真机验证通过：正文输入/退格、重复插图、重启后插图、图前后输入、图片删除/撤销/重做、离页重开。其他图片格式、选择取消、空间不足、超大图片、中文预输入及更多输入法场景仍待验收。
 
-## 桌面卡片与半模态编辑（第 7 步）
+## 桌面卡片与半模态编辑
+
+调用位置：pages/NoteDesktop.ets、pages/DesktopNoteEdit.ets、entryformability/NoteFormAbility.ets、entryformeditability/NoteFormEditAbility.ets；platform/DesktopCards.ets负责通知/配色，platform/NoteLaunch.ets解析启动，repository/DesktopNoteRepository.ets负责文件。
 
 - ArkUI AddFormMenuItem（API 12）提交 2×2 卡片，FormKit FormExtensionAbility 通过 onAddForm、onUpdateForm、onRemoveForm 管理实例，updateForm 刷新。module.json5 声明 form 扩展及表单配置；配置关联 formEdit 扩展，目标仍为 API 19。
 - FormEditExtensionAbility 自 API 18 支持。桌面长按卡片的「编辑」通过 cardId 和 previewCardId 指定实际卡片与预览卡片，UIExtensionContentSession.loadContent 加载独立页面，通过会话 terminateSelf 关闭。普通卡片组件清单不包含 TextInput/TextArea，半模态扩展页面可使用这两个组件。
@@ -46,7 +49,7 @@ SDK 版本信息来自本机已安装 SDK 的声明文件。运行设备的系�
 
 ## 接入经验
 
-- ArkUI 的 `.animation(...)` 不是只作用于紧邻的一个属性。动态皮肤曾把宽高和旋转放在同一无限往复动画范围内，首次窗口测量及全屏/小窗切换后，出现边缘游走缺损、矩形切口和半片闪烁。原 SVG 加 renderGroup、替换为透明 PNG 均未解决；恢复原 SVG，在宽高和透明度之后加 `.animation(null)`，再对 rotate 单独设置循环动画后，全屏、小窗各采样 24 帧未再复现，用户随后确认观感正常。布局尺寸和位置应直接适配窗口，不能混入装饰旋转循环。回归需覆盖首次选择、全屏与小窗往返切换及多个摆动周期，单张截图只能证明当帧显示。
+- ArkUI的.animation作用于此前属性范围。仅旋转循环时，应在宽高和透明度后animation(null)，再rotate/animation；首次测量和窗口切换不能参与无限循环。回归覆盖首次选择、全屏/小窗往返及多个周期，单张截图不能证明动画稳定。详细排查与用户反馈见[皮肤排查历史](archive/2026-11-12-progress.md)。
 - 列表 key 决定节点身份，不等于 item 数据绑定。稳定 key 下替换数组中的普通对象，复用节点的闭包可能仍读取旧对象，导致输入闪现后回退。当前正文按稳定 ID 查询最新状态，保留输入框实例与焦点。不要以文字内容作为 key 绕过同步问题，否则每次输入可能重建节点并丢失光标、预输入或焦点。
 - 多输入框的选区回调不一定代表用户正在编辑该框。只接受当前激活输入框的光标更新，自动聚焦直接使用目标 ID，避免初始化或失焦回调覆盖活动位置。
 - 文件系统调用的幂等性要依据实际 API，不能照搬其他平台的语义。附件目录创建前检查是否存在；同时覆盖首次、重复调用和进程重启后调用。
@@ -60,19 +63,19 @@ SDK 版本信息来自本机已安装 SDK 的声明文件。运行设备的系�
 - 图片附件的跨进程孤立文件清理、录音与权限、手写、提醒通知、私密认证及保护、完整笔记持久化。
 - 每项补录最低接口版本、设备能力和权限要求、授权拒绝及系统不支持时的处理、资源与监听释放，以及实际通过验证的设备和系统版本。
 
-## 动态皮肤叶脉可见性
+## 动态皮肤透明合成
 
-当前平板上，低透明度 SVG 的叶脉不可见。依次测试显式 L 命令、将描边属性从 g 移到 path、改用 line、将线段改成同色等宽填充轮廓，均未恢复。恢复原始 SVG，仅对 Image 增加 renderGroup(true) 后，原颜色、3 单位线宽和 12%/16% 不透明度下叶脉恢复可见。对照支持透明合成路径影响内部对比度，不能将此问题误记成路径简写不支持，也不能泛化为全部设备的 SVG 描边故障。图案先整体缓存，再整体透明合成；宽高后的 animation(null) 必须保留，缓存不能代替动画范围隔离。
+当前设备树叶使用Image.renderGroup(true)，整体缓存后透明合成以保留低透明度叶脉内部对比度。宽高后的animation(null)必须保留，缓存不能代替动画范围隔离。不要泛化为全部设备SVG描边或路径简写故障；详细对照过程见[皮肤排查历史](archive/2026-11-12-progress.md)。
 
-## 2026-11-11 结构迁移与接入补充
+## 当前模块边界与生命周期
 
 - 系统分享、附件导入/清理、桌面配色/通知、启动参数解析移入 platform；存储仓库不再导入 FormKit。主编辑与半模态共用 services/NoteService，错误分类与现有 JSON 兼容约定见 data-model.md。
 - 桌面入口使用 RouterMode.Single；当前顶部实例复用不会可靠重触发 onPageShow，因此路由成功后通过独立 AppStorage 信号要求当前可见编辑页重新读取目标参数。不同目标先保存旧草稿，所有异步图片/弹窗回调核对会话代号。
 - 半模态每个会话创建独立 LocalStorage，通过 session.loadContent 注入；页面使用 @Entry({ useSharedStorage: true }) 与 UIContext.getSharedLocalStorage 取得所属会话。SDK19 未提供可依赖的系统完成保存回调，采用常驻先保存提示，输入后标记尚未保存。
 - 皮肤选择面板采用显式底部定位，避免通用 align 属性未按预期布局而遮挡导航。动态背景接收 paused，页面隐藏/编辑/图片覆盖层暂停；原樱花落地停留后淡出。实际长时资源压力尚未测量。
-- 本轮设备验证与未覆盖场景见 integration-2026-11-11.md；UI树和截图在工程忽略的 build/verification，用户数据备份不提交。
+- 设备验证与未覆盖场景见 [集成历史](archive/2026-11-11-integration.md)；UI树和截图在工程忽略的 build/verification，用户数据备份不提交。
 
-## 第二轮原生排版命中与桌面宿主限制
+## 原生排版命中与桌面宿主限制
 
-- 浏览态每个正文块保持TextController，ClickEvent组件局部vp通过UIContext.vp2px转换后交给LayoutManager.getGlyphPositionAtCoordinate（API12）；返回UTF-16偏移，不按Unicode码点二次换算，不再叠加Scroll偏移。布局不可用时不猜测字宽，保护代理对边界。真实首击定位与长文位置回归见optimization-round2.md。
+- 浏览态每个正文块保持TextController，ClickEvent组件局部vp通过UIContext.vp2px转换后交给LayoutManager.getGlyphPositionAtCoordinate（API12）；返回UTF-16偏移，不按Unicode码点二次换算，不再叠加Scroll偏移。布局不可用时不猜测字宽，保护代理对边界。真实首击定位与长文位置回归见[第二轮历史](archive/2026-11-11-optimization-round2.md)。
 - SDK19不能拦截宿主完成、隐藏宿主标题。UIExtensionContentSession.terminateSelf只结束我们的编辑区，真机宿主预览弹窗仍保留；按钮使用用户确认的“保存并结束编辑”，不可宣称自动关闭整个宿主。取消/系统完成不隐式保存。
