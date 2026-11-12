@@ -8,7 +8,8 @@ import { photoAccessHelper } from '@kit.MediaLibraryKit';
 
 import { GROUP_ALL, GROUP_UNFILED, NOTE_GROUPS, Note } from '../model/Note';
 import { changeNoteSkin, deleteNote, moveNote, NoteEditorParams } from '../services/NoteService';
-import { findNote, listNotes, refreshNotes } from '../repository/NoteRepository';
+import { loadFullNote, refreshNotes } from '../repository/NoteRepository';
+import { listReferencedImagePaths } from '../repository/NoteSqlRepository';
 import { findSkin, isDynamicSkin, NoteSkin } from '../model/NoteSkin';
 import { NoteEditorSession } from '../viewmodel/NoteEditorSession';
 import { noteTextCaret } from '../platform/NoteTextHitTest';
@@ -92,11 +93,31 @@ struct NoteEditor {
   aboutToAppear(): void {
     this.sessionGeneration++;
     this.params = this.getUIContext().getRouter().getParams() as NoteEditorParams;
-    this.original = findNote(this.params.id);
-    this.session.load(this.original);
-    this.editing = this.original === undefined;
-    this.selectedGroup = this.original?.group ?? this.params.group;
-    this.skinId = this.original?.skinId ?? 'white';
+    this.session.load(undefined);
+    this.editing = this.params.id === '';
+    this.selectedGroup = this.params.group;
+    this.loadInitialNote();
+  }
+
+  private async loadInitialNote(): Promise<void> {
+    const generation: number = this.sessionGeneration;
+    const note: Note | undefined = await loadFullNote(this.params.id);
+    if (this.disposed || generation !== this.sessionGeneration) {
+      return;
+    }
+    this.original = note;
+    this.session.load(note);
+    this.editing = note === undefined;
+    this.selectedGroup = note?.group ?? this.params.group;
+    this.skinId = note?.skinId ?? 'white';
+  }
+
+  private async releaseImages(images: NoteImage[]): Promise<void> {
+    try {
+      releaseUnusedImages(images, await listReferencedImagePaths());
+    } catch {
+      return;
+    }
   }
 
   async onPageShow(): Promise<void> {
@@ -106,13 +127,14 @@ struct NoteEditor {
     if (requested && requested.id !== this.params.id) {
       if (!(await this.saveBeforeLeaving())) { return; }
       this.sessionGeneration++;
-      releaseUnusedImages(this.session.images, listNotes());
+      await this.releaseImages(this.session.images);
       this.params = requested;
-      this.original = findNote(requested.id);
-      this.session.load(this.original);
-      this.skinId = this.original?.skinId ?? 'white';
-      this.selectedGroup = this.original?.group ?? requested.group;
-      this.editing = this.original === undefined;
+      const note: Note | undefined = await loadFullNote(requested.id);
+      this.original = note;
+      this.session.load(note);
+      this.skinId = note?.skinId ?? 'white';
+      this.selectedGroup = note?.group ?? requested.group;
+      this.editing = note === undefined;
       this.skinPickerVisible = false;
       this.menuVisible = false;
       this.folderPickerVisible = false;
@@ -122,13 +144,13 @@ struct NoteEditor {
       this.folderProgress = 0;
       this.bodyScroller.scrollTo({ xOffset: 0, yOffset: 0 });
     }
-    if (this.original && !findNote(this.params.id)) {
+    const stored: Note | undefined = await loadFullNote(this.params.id);
+    if (this.original && !stored) {
       this.resolveDeletedNote();
       return;
     }
-    const latest = findNote(this.params.id);
-    if (latest && this.original && JSON.stringify(latest) !== JSON.stringify(this.original)) {
-      this.refreshExternalNote(latest);
+    if (stored && this.original && JSON.stringify(stored) !== JSON.stringify(this.original)) {
+      this.refreshExternalNote(stored);
     }
   }
 
@@ -161,7 +183,7 @@ struct NoteEditor {
       }
     }
     if (this.disposed || generation !== this.sessionGeneration || latest.id !== this.params.id) { return; }
-    releaseUnusedImages(this.session.images, listNotes());
+    await this.releaseImages(this.session.images);
     this.sessionGeneration++;
     this.original = latest;
     this.session.load(latest);
@@ -195,7 +217,7 @@ struct NoteEditor {
           this.getUIContext().getPromptAction().showToast({ message: '另存失败，当前草稿仍保留' });
         }
       } else {
-        releaseUnusedImages(this.session.images, listNotes());
+        await this.releaseImages(this.session.images);
         this.session.markSaved();
         this.getUIContext().getRouter().back();
       }
@@ -221,7 +243,7 @@ struct NoteEditor {
     clearTimeout(this.keyboardTimer);
     clearTimeout(this.scrollRestoreTimer);
     this.disposed = true;
-    releaseUnusedImages(this.session.images, listNotes());
+    this.releaseImages(this.session.images).catch(() => {});
     this.share.dispose();
   }
 
@@ -297,7 +319,7 @@ struct NoteEditor {
       const context = this.getUIContext().getHostContext() as common.UIAbilityContext;
       const item = await importNoteImage(context.filesDir, result.photoUris[0]);
       if (this.disposed || generation !== this.sessionGeneration) {
-        releaseUnusedImages([item], listNotes());
+        await this.releaseImages([item]);
         return;
       }
       this.focusTarget = this.session.insertImage(item, target, offset);

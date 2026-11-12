@@ -52,9 +52,7 @@ export function noteSummary(note: Note): string {
   if (text === '') {
     return note.blocks?.some((block: BodyBlock) => block.imageId !== '') ? '图片笔记' : '';
   }
-  const lines: string[] = text.split('\n');
-  const first: string = lines.find((line: string) => line.trim() !== '') ?? text;
-  return first.length > SUMMARY_LIMIT ? first.substring(0, SUMMARY_LIMIT) : first;
+  return text.length > SUMMARY_LIMIT ? text.substring(0, SUMMARY_LIMIT) : text;
 }
 
 export function noteBlocks(note: Note): BodyBlock[] {
@@ -103,6 +101,36 @@ async function readAttachments(noteId: string): Promise<NoteImage[]> {
     result.close();
   }
   return images;
+}
+
+export async function loadNoteSummaries(): Promise<Note[]> {
+  const store = noteDatabase();
+  const result: relationalStore.ResultSet = await store.querySql(
+    'SELECT id, title, summary, group_name, skin_id, time_label FROM notes WHERE deleted = 0 ORDER BY updated_at DESC, id ASC');
+  const notes: Note[] = [];
+  try {
+    while (result.goToNextRow()) {
+      notes.push({ id: result.getString(0), title: result.getString(1), content: result.getString(2),
+        timeLabel: result.getString(5), group: result.getString(3), skinId: result.getString(4) });
+    }
+  } finally {
+    result.close();
+  }
+  return notes;
+}
+
+export async function listReferencedImagePaths(): Promise<string[]> {
+  const store = noteDatabase();
+  const result: relationalStore.ResultSet = await store.querySql('SELECT DISTINCT rel_path FROM attachments');
+  const paths: string[] = [];
+  try {
+    while (result.goToNextRow()) {
+      paths.push(absoluteImagePath(result.getString(0)));
+    }
+  } finally {
+    result.close();
+  }
+  return paths;
 }
 
 export async function loadAllNotes(): Promise<Note[]> {

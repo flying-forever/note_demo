@@ -1,8 +1,7 @@
-// 导入图片到应用私有目录并读取元数据，清理不再引用的附件。
+// 导入图片到应用私有目录并读取元数据，清理不再被任何笔记引用的附件。
 import { fileIo as fs } from '@kit.CoreFileKit';
 import { image } from '@kit.ImageKit';
 import { NoteImage } from '../model/NoteDocument';
-import { Note } from '../model/Note';
 
 export async function importNoteImage(filesDir: string, uri: string): Promise<NoteImage> {
   const directory: string = filesDir + '/note-images';
@@ -31,9 +30,9 @@ export async function importNoteImage(filesDir: string, uri: string): Promise<No
   }
 }
 
-export function releaseUnusedImages(images: NoteImage[], saved: Note[]): void {
+export function releaseUnusedImages(images: NoteImage[], referencedPaths: string[]): void {
   images.forEach((item: NoteImage) => {
-    if (!saved.some((note: Note) => note.images?.some((image: NoteImage) => image.path === item.path))) {
+    if (!referencedPaths.includes(item.path)) {
       try { fs.unlinkSync(item.path); } catch {}
     }
   });

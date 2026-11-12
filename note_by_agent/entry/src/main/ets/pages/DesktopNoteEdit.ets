@@ -1,9 +1,12 @@
 // 在桌面卡片扩展会话中编辑笔记，校验保存冲突并刷新预览。
 import { UIExtensionContentSession } from '@kit.AbilityKit';
+import { common } from '@kit.AbilityKit';
 import { formBindingData, formProvider } from '@kit.FormKit';
 import { BodyBlock, textBlock } from '../model/NoteDocument';
 import { Note } from '../model/Note';
 import { NoteSkin, findSkin } from '../model/NoteSkin';
+import { openNoteDatabase } from '../repository/NoteDatabase';
+import { loadStoredNote, setNoteFilesDir } from '../repository/NoteSqlRepository';
 import { desktopLink, readDesktopNote } from '../repository/DesktopNoteRepository';
 import { desktopCardData } from '../platform/DesktopCards';
 import { saveNoteDraft, snapshotNote } from '../services/NoteService';
@@ -38,12 +41,34 @@ struct DesktopNoteEdit {
   aboutToAppear(): void {
     this.disposed = false;
     this.session = this.getUIContext().getSharedLocalStorage()?.get<UIExtensionContentSession>('editSession');
+    this.loadOriginal();
+  }
+
+  private async loadOriginal(): Promise<void> {
+    const link = desktopLink(this.formId);
+    let note: Note | undefined = undefined;
     try {
-      const link = desktopLink(this.formId);
-      this.original = link ? readDesktopNote(link.noteId) : undefined;
-    } catch {
-      this.original = undefined;
+      const context = this.getUIContext().getHostContext() as common.Context;
+      if (context) {
+        setNoteFilesDir(context.filesDir);
+        await openNoteDatabase(context);
+      }
+      if (link) {
+        const stored = await loadStoredNote(link.noteId);
+        note = stored?.note;
+      }
+    } catch {}
+    if (!note && link) {
+      try {
+        note = readDesktopNote(link.noteId);
+      } catch {
+        note = undefined;
+      }
     }
+    if (this.disposed) {
+      return;
+    }
+    this.original = note;
     this.originalSnapshot = snapshotNote(this.original);
     this.title = this.original?.title ?? '';
     this.blocks = this.original?.blocks ?? [textBlock(this.original?.content ?? '')];

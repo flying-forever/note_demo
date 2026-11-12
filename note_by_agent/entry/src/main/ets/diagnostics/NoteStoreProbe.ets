@@ -2,7 +2,7 @@
 import { Note } from '../model/Note';
 import { BodyBlock, documentText } from '../model/NoteDocument';
 import { loadAllNotes, loadNote, saveNoteRecord, saveNoteChecked, deleteNoteRecord, purgeNoteRecord,
-  noteRevision, updateNoteRecord, storeCounts, getSetting, noteBlocks } from '../repository/NoteSqlRepository';
+  noteRevision, updateNoteRecord, storeCounts, getSetting, noteBlocks, listReferencedImagePaths } from '../repository/NoteSqlRepository';
 
 export interface StoreCheckResult {
   name: string;
@@ -58,5 +58,7 @@ export async function runNoteStoreChecks(report: (result: StoreCheckResult) => v
   await purgeNoteRecord(id);
   const after = await storeCounts();
   verify(after.notes === before.notes && after.blocks === before.blocks, `清理后计数异常：${after.notes}/${after.blocks}`);
+  const referenced = await listReferencedImagePaths();
+  verify(referenced.length === after.attachments, `附件引用数不一致：${referenced.length}/${after.attachments}`);
   report({ name: '写入/版本/删除', detail: `版本 ${rev1}→${rev2}，过期写入被拒，墓碑与清理通过` });
 }

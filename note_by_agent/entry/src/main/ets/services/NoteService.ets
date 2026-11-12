@@ -1,7 +1,7 @@
 // 统一处理笔记保存、冲突检测、移动、换肤与删除业务。
 import { Note } from '../model/Note';
 import { BodyBlock, NoteImage, documentText, copyImage } from '../model/NoteDocument';
-import { findNote, commitNote, commitNoteChecked, removeNote, updateNoteMeta } from '../repository/NoteRepository';
+import { commitNote, commitNoteChecked, removeNote, updateNoteMeta } from '../repository/NoteRepository';
 import { loadStoredNote, StoredNoteRecord } from '../repository/NoteSqlRepository';
 import { refreshDesktopCards } from '../platform/DesktopCards';
 
@@ -52,7 +52,7 @@ export async function saveNoteDraft(request: NoteSaveRequest): Promise<NoteSaveR
       }
       original = stored.note;
       baseRevision = stored.revision;
-      const expected: string = request.expectedSnapshot ?? snapshotNote(findNote(request.id) ?? original);
+      const expected: string = request.expectedSnapshot ?? snapshotNote(original);
       if (snapshotNote(original) !== expected) {
         return { status: 'conflict' };
       }

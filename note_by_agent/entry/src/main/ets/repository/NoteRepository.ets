@@ -4,8 +4,9 @@ import { FAKE_NOTES, Note } from '../model/Note';
 import { initializeDesktopRepository, listDesktopRecords, persistDesktopNote, deleteDesktopNote,
   readDesktopRecord } from './DesktopNoteRepository';
 import { openNoteDatabase } from './NoteDatabase';
-import { loadAllNotes, saveNoteRecord, saveNoteChecked, deleteNoteRecord, updateNoteRecord,
-  migrateDesktopRecords, seedSampleNotes, getSetting, setSetting, setNoteFilesDir, NoteWriteResult } from './NoteSqlRepository';
+import { loadNoteSummaries, loadStoredNote, saveNoteRecord, saveNoteChecked, deleteNoteRecord, updateNoteRecord,
+  migrateDesktopRecords, seedSampleNotes, getSetting, setSetting, setNoteFilesDir, noteSummary,
+  NoteWriteResult } from './NoteSqlRepository';
 
 const SEED_KEY: string = 'bootstrap.samples.v1';
 const SEED_VALUE: string = 'seeded';
@@ -40,7 +41,7 @@ export async function initializeNoteRepository(context: common.Context): Promise
     await seedSampleNotes(FAKE_NOTES);
     await setSetting(SEED_KEY, SEED_VALUE);
   }
-  notes = await loadAllNotes();
+  notes = await loadNoteSummaries();
   ready = true;
 }
 
@@ -48,7 +49,17 @@ export async function refreshNotes(): Promise<void> {
   if (!ready) {
     return;
   }
-  notes = await loadAllNotes();
+  notes = await loadNoteSummaries();
+}
+
+export async function loadFullNote(id: string): Promise<Note | undefined> {
+  const stored = await loadStoredNote(id);
+  return stored?.note;
+}
+
+function summaryOf(note: Note): Note {
+  return { id: note.id, title: note.title, content: noteSummary(note), timeLabel: note.timeLabel,
+    group: note.group, skinId: note.skinId };
 }
 
 export function listNotes(): Note[] {
@@ -65,8 +76,8 @@ export async function commitNote(note: Note, persistToDesktop: boolean = false,
   if (persistToDesktop || readDesktopRecord(saved.id)) {
     persistDesktopNote(saved);
   }
-  notes = reorder ? [saved, ...notes.filter((item: Note) => item.id !== saved.id)] :
-    notes.map((item: Note) => item.id === saved.id ? saved : item);
+  notes = reorder ? [summaryOf(saved), ...notes.filter((item: Note) => item.id !== saved.id)] :
+    notes.map((item: Note) => item.id === saved.id ? summaryOf(saved) : item);
   return saved;
 }
 
@@ -80,7 +91,7 @@ export async function commitNoteChecked(note: Note, expectedRevision: number,
   if (persistToDesktop || readDesktopRecord(saved.id)) {
     persistDesktopNote(saved);
   }
-  notes = [saved, ...notes.filter((item: Note) => item.id !== saved.id)];
+  notes = [summaryOf(saved), ...notes.filter((item: Note) => item.id !== saved.id)];
   return result;
 }
 
@@ -92,11 +103,14 @@ export async function updateNoteMeta(id: string, group?: string, skinId?: string
       return item;
     }
     updated = { id: item.id, title: item.title, content: item.content, timeLabel: item.timeLabel,
-      group: group ?? item.group, skinId: skinId ?? item.skinId, blocks: item.blocks, images: item.images };
+      group: group ?? item.group, skinId: skinId ?? item.skinId };
     return updated;
   });
-  if (updated && readDesktopRecord(id)) {
-    persistDesktopNote(updated);
+  if (readDesktopRecord(id)) {
+    const full: Note | undefined = await loadFullNote(id);
+    if (full) {
+      persistDesktopNote(full);
+    }
   }
   return updated;
 }
