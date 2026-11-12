@@ -127,25 +127,86 @@ export async function loadAllNotes(): Promise<Note[]> {
   return notes;
 }
 
-export async function loadNote(id: string): Promise<Note | undefined> {
+export interface StoredNoteRecord {
+  note: Note;
+  revision: number;
+}
+
+export interface NoteWriteResult {
+  status: string;
+  note?: Note;
+}
+
+export async function loadStoredNote(id: string): Promise<StoredNoteRecord | undefined> {
   const store = noteDatabase();
   const result: relationalStore.ResultSet = await store.querySql(
-    'SELECT id, title, group_name, skin_id, time_label, deleted FROM notes WHERE id = ?', [id]);
+    'SELECT id, title, group_name, skin_id, time_label, deleted, revision FROM notes WHERE id = ?', [id]);
+  let title: string = '';
+  let group: string = '';
+  let skinId: string = 'white';
+  let timeLabel: string = '';
+  let revision: number = 0;
   try {
-    if (!result.goToFirstRow()) {
+    if (!result.goToFirstRow() || result.getLong(5) === 1) {
       return undefined;
     }
-    if (result.getLong(5) === 1) {
-      return undefined;
-    }
-    const row: Note = { id: result.getString(0), title: result.getString(1), content: '',
-      timeLabel: result.getString(4), group: result.getString(2), skinId: result.getString(3) };
-    const blocks: BodyBlock[] = await readBlocks(id);
-    return noteFromRow({ id: row.id, title: row.title, content: documentText(blocks), timeLabel: row.timeLabel,
-      group: row.group, skinId: row.skinId }, blocks, await readAttachments(id));
+    title = result.getString(1);
+    group = result.getString(2);
+    skinId = result.getString(3);
+    timeLabel = result.getString(4);
+    revision = result.getLong(6);
   } finally {
     result.close();
   }
+  const blocks: BodyBlock[] = await readBlocks(id);
+  const note: Note = { id: id, title: title, content: documentText(blocks), timeLabel: timeLabel,
+    group: group, skinId: skinId, blocks: blocks, images: await readAttachments(id) };
+  return { note: note, revision: revision };
+}
+
+export async function loadNote(id: string): Promise<Note | undefined> {
+  const stored: StoredNoteRecord | undefined = await loadStoredNote(id);
+  return stored?.note;
+}
+
+async function noteMissing(id: string): Promise<boolean> {
+  const store = noteDatabase();
+  const result: relationalStore.ResultSet = await store.querySql('SELECT deleted FROM notes WHERE id = ?', [id]);
+  try {
+    return !result.goToFirstRow() || result.getLong(0) === 1;
+  } finally {
+    result.close();
+  }
+}
+
+export async function saveNoteChecked(note: Note, expectedRevision: number): Promise<NoteWriteResult> {
+  const store = noteDatabase();
+  const blocks: BodyBlock[] = noteBlocks(note);
+  const content: string = documentText(blocks);
+  const now: number = Date.now();
+  store.beginTransaction();
+  try {
+    const values: relationalStore.ValuesBucket = {
+      title: note.title, summary: noteSummary(note), content_length: contentLength(content),
+      group_name: note.group, skin_id: note.skinId ?? 'white', revision: expectedRevision + 1,
+      updated_at: now, deleted: 0, time_label: note.timeLabel
+    };
+    const predicates: relationalStore.RdbPredicates = new relationalStore.RdbPredicates('notes');
+    predicates.equalTo('id', note.id).equalTo('revision', expectedRevision).equalTo('deleted', 0);
+    const changed: number = await store.update(values, predicates);
+    if (changed === 0) {
+      store.rollBack();
+      return { status: (await noteMissing(note.id)) ? 'deleted' : 'conflict' };
+    }
+    await writeBlocks(note.id, blocks);
+    await writeAttachments(note.id, note.images ?? []);
+    store.commit();
+  } catch (error) {
+    store.rollBack();
+    throw new Error(`保存笔记失败：${String(error)}`);
+  }
+  return { status: 'saved', note: { id: note.id, title: note.title, content: content, timeLabel: note.timeLabel,
+    group: note.group, skinId: note.skinId, blocks: blocks, images: note.images ?? [] } };
 }
 
 async function nextRevision(id: string): Promise<number> {

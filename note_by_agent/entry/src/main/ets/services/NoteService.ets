@@ -1,8 +1,8 @@
 // 统一处理笔记保存、冲突检测、移动、换肤与删除业务。
 import { Note } from '../model/Note';
 import { BodyBlock, NoteImage, documentText, copyImage } from '../model/NoteDocument';
-import { findNote, commitNote, removeNote, updateNoteMeta } from '../repository/NoteRepository';
-import { loadNote } from '../repository/NoteSqlRepository';
+import { findNote, commitNote, commitNoteChecked, removeNote, updateNoteMeta } from '../repository/NoteRepository';
+import { loadStoredNote, StoredNoteRecord } from '../repository/NoteSqlRepository';
 import { refreshDesktopCards } from '../platform/DesktopCards';
 
 export interface NoteEditorParams {
@@ -44,11 +44,14 @@ export function isBlankNote(title: string, blocks: BodyBlock[]): boolean {
 export async function saveNoteDraft(request: NoteSaveRequest): Promise<NoteSaveResult> {
   try {
     let original: Note | undefined;
+    let baseRevision: number = 0;
     if (request.id !== '') {
-      original = await loadNote(request.id);
-      if (!original) {
+      const stored: StoredNoteRecord | undefined = await loadStoredNote(request.id);
+      if (!stored) {
         return { status: 'deleted' };
       }
+      original = stored.note;
+      baseRevision = stored.revision;
       const expected: string = request.expectedSnapshot ?? snapshotNote(findNote(request.id) ?? original);
       if (snapshotNote(original) !== expected) {
         return { status: 'conflict' };
@@ -71,7 +74,17 @@ export async function saveNoteDraft(request: NoteSaveRequest): Promise<NoteSaveR
       skinId: request.skinId ?? original?.skinId ?? 'white',
       timeLabel: `${now.getMonth() + 1}月${now.getDate()}日 ${now.getHours().toString().padStart(2, '0')}:${now.getMinutes().toString().padStart(2, '0')}`
     };
-    const saved: Note = await commitNote(note, request.persistToDesktop ?? false);
+    const persistToDesktop: boolean = request.persistToDesktop ?? false;
+    let saved: Note;
+    if (original) {
+      const outcome = await commitNoteChecked(note, baseRevision, persistToDesktop);
+      if (outcome.status !== 'saved' || !outcome.note) {
+        return { status: outcome.status };
+      }
+      saved = outcome.note;
+    } else {
+      saved = await commitNote(note, persistToDesktop);
+    }
     refreshDesktopCards(saved.id).catch(() => {});
     return { status: 'saved', note: saved };
   } catch {

@@ -4,8 +4,8 @@ import { FAKE_NOTES, Note } from '../model/Note';
 import { initializeDesktopRepository, listDesktopRecords, persistDesktopNote, deleteDesktopNote,
   readDesktopRecord } from './DesktopNoteRepository';
 import { openNoteDatabase } from './NoteDatabase';
-import { loadAllNotes, saveNoteRecord, deleteNoteRecord, updateNoteRecord, migrateDesktopRecords,
-  seedSampleNotes, getSetting, setSetting, setNoteFilesDir } from './NoteSqlRepository';
+import { loadAllNotes, saveNoteRecord, saveNoteChecked, deleteNoteRecord, updateNoteRecord,
+  migrateDesktopRecords, seedSampleNotes, getSetting, setSetting, setNoteFilesDir, NoteWriteResult } from './NoteSqlRepository';
 
 const SEED_KEY: string = 'bootstrap.samples.v1';
 const SEED_VALUE: string = 'seeded';
@@ -68,6 +68,20 @@ export async function commitNote(note: Note, persistToDesktop: boolean = false,
   notes = reorder ? [saved, ...notes.filter((item: Note) => item.id !== saved.id)] :
     notes.map((item: Note) => item.id === saved.id ? saved : item);
   return saved;
+}
+
+export async function commitNoteChecked(note: Note, expectedRevision: number,
+  persistToDesktop: boolean = false): Promise<NoteWriteResult> {
+  const result: NoteWriteResult = await saveNoteChecked(note, expectedRevision);
+  if (result.status !== 'saved' || !result.note) {
+    return result;
+  }
+  const saved: Note = result.note;
+  if (persistToDesktop || readDesktopRecord(saved.id)) {
+    persistDesktopNote(saved);
+  }
+  notes = [saved, ...notes.filter((item: Note) => item.id !== saved.id)];
+  return result;
 }
 
 export async function updateNoteMeta(id: string, group?: string, skinId?: string): Promise<Note | undefined> {

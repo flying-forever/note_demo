@@ -1,8 +1,8 @@
 // 对正式笔记库执行计数、往返、版本与删除清理自检，不保留测试数据。
 import { Note } from '../model/Note';
 import { BodyBlock, documentText } from '../model/NoteDocument';
-import { loadAllNotes, loadNote, saveNoteRecord, deleteNoteRecord, purgeNoteRecord, noteRevision,
-  updateNoteRecord, storeCounts, getSetting, noteBlocks } from '../repository/NoteSqlRepository';
+import { loadAllNotes, loadNote, saveNoteRecord, saveNoteChecked, deleteNoteRecord, purgeNoteRecord,
+  noteRevision, updateNoteRecord, storeCounts, getSetting, noteBlocks } from '../repository/NoteSqlRepository';
 
 export interface StoreCheckResult {
   name: string;
@@ -49,10 +49,14 @@ export async function runNoteStoreChecks(report: (result: StoreCheckResult) => v
   await updateNoteRecord(id, '随记');
   const rev2: number = await noteRevision(id);
   verify(rev2 === rev1 + 1, '版本号未递增');
+  const stale = await saveNoteChecked({ id: id, title: '过期写入', content: '过期', timeLabel: '', group: '',
+    skinId: 'white', blocks: [{ id: `${id}:0`, text: '过期', imageId: '' }], images: [] }, rev1);
+  verify(stale.status === 'conflict', `过期版本未被拒绝：${stale.status}`);
+  verify((await loadNote(id))?.title === '数据层自检', '冲突后内容被覆盖');
   await deleteNoteRecord(id);
   verify((await loadNote(id)) === undefined, '墓碑后仍可读到笔记');
   await purgeNoteRecord(id);
   const after = await storeCounts();
   verify(after.notes === before.notes && after.blocks === before.blocks, `清理后计数异常：${after.notes}/${after.blocks}`);
-  report({ name: '写入/版本/删除', detail: `版本 ${rev1}→${rev2}，墓碑与清理通过` });
+  report({ name: '写入/版本/删除', detail: `版本 ${rev1}→${rev2}，过期写入被拒，墓碑与清理通过` });
 }
