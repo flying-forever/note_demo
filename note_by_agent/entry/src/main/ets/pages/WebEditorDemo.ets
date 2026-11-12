@@ -1,5 +1,6 @@
 // 在离线 Web 组件中对照长文编辑引擎，仅传入合成试验文字。
 import { webview } from '@kit.ArkWeb';
+import { pasteboard } from '@kit.BasicServicesKit';
 import { DemoStyle, TECH_DEMOS_ENABLED } from '../diagnostics/DemoCatalog';
 import { fixtureText } from '../diagnostics/LongDocumentFixture';
 
@@ -31,6 +32,17 @@ struct WebEditorDemo {
 
   private setEditable(editable: boolean): void {
     this.execute(`window.noteProbe.setEditable(${editable})`);
+  }
+
+  private async seedClipboard(): Promise<void> {
+    try {
+      const text: string = fixtureText(20000, false);
+      const data: pasteboard.PasteData = pasteboard.createData(pasteboard.MIMETYPE_TEXT_PLAIN, text);
+      await pasteboard.getSystemPasteboard().setData(data);
+      this.status = `已写入 ${text.length} 字到系统剪贴板；请在正文长按后点“粘贴”。`;
+    } catch (error) {
+      this.status = `写入剪贴板失败：${error}`;
+    }
   }
 
   build() {
@@ -74,6 +86,10 @@ struct WebEditorDemo {
             .onClick(() => this.execute('window.noteProbe.startPerformance()'))
           Button('结束采样').margin({ right: 8, bottom: 8 }).enabled(this.ready && !this.busy)
             .onClick(() => this.execute('window.noteProbe.stopPerformance()'))
+          Button('写2万字').margin({ right: 8, bottom: 8 }).enabled(this.ready && !this.busy)
+            .onClick(() => { this.seedClipboard(); })
+          Button('撤销').margin({ right: 8, bottom: 8 }).enabled(this.ready && !this.busy)
+            .onClick(() => this.execute('window.noteProbe.undoLast()'))
           Button('只读').margin({ right: 8, bottom: 8 }).enabled(this.ready && !this.busy)
             .onClick(() => this.setEditable(false))
           Button('编辑').margin({ right: 8, bottom: 8 }).enabled(this.ready && !this.busy)

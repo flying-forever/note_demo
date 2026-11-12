@@ -16041,6 +16041,8 @@
   var token = 0;
   var ok = null;
   var performanceProbe;
+  var pasteStart = 0;
+  var pasteMs = null;
   var extensions = [
     EditorView.lineWrapping,
     history(),
@@ -16049,6 +16051,13 @@
       if (update.docChanged) {
         changes++;
         performanceProbe?.changed(update);
+        if (pasteStart) {
+          const start = pasteStart;
+          requestAnimationFrame(() => requestAnimationFrame(() => {
+            pasteMs = Math.round(Math.max(pasteMs || 0, performance.now() - start) * 10) / 10;
+            pasteStart = 0;
+          }));
+        }
       }
     }),
     editableCompartment.of(EditorView.editable.of(true))
@@ -16059,6 +16068,10 @@
   var pressAt = 0;
   var pressX = 0;
   var pressY = 0;
+  view.contentDOM.addEventListener("paste", () => {
+    pasteStart = performance.now();
+    pasteMs = null;
+  }, true);
   view.contentDOM.addEventListener("pointerdown", (event) => {
     if (editableState) return;
     pressAt = performance.now();
@@ -16095,6 +16108,7 @@
       loadMs,
       status,
       ok,
+      pasteMs,
       selectionFrom: selection.from,
       selectionTo: selection.to,
       composing: view.composing,
@@ -16191,6 +16205,12 @@
       ok = replaced && undone && redone && restored;
       status = "transaction replace / undo / redo / restore; not IME or clipboard validation";
       return result({ check: ok, replaced, undone, redone, restored });
+    },
+    undoLast() {
+      const before = view.state.doc.length;
+      const undone = undo(view);
+      status = undone ? `undo applied; length ${before} -> ${view.state.doc.length}` : "nothing to undo";
+      return result({ undone });
     },
     jump(fraction) {
       const position = Math.round(view.state.doc.length * Math.max(0, Math.min(1, fraction)));

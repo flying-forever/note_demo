@@ -14,9 +14,21 @@ let status = 'ready';
 let token = 0;
 let ok = null;
 let performanceProbe;
+let pasteStart = 0;
+let pasteMs = null;
 const extensions = [EditorView.lineWrapping, history(), keymap.of([...defaultKeymap, ...historyKeymap]),
   EditorView.updateListener.of(update => {
-    if (update.docChanged) { changes++; performanceProbe?.changed(update); }
+    if (update.docChanged) {
+      changes++;
+      performanceProbe?.changed(update);
+      if (pasteStart) {
+        const start = pasteStart;
+        requestAnimationFrame(() => requestAnimationFrame(() => {
+          pasteMs = Math.round(Math.max(pasteMs || 0, performance.now() - start) * 10) / 10;
+          pasteStart = 0;
+        }));
+      }
+    }
   }), editableCompartment.of(EditorView.editable.of(true))];
 const view = new EditorView({ state: EditorState.create({ extensions }), parent: document.getElementById('editor') });
 performanceProbe = new PerformanceProbe(view);
@@ -24,6 +36,10 @@ let editableState = true;
 let pressAt = 0;
 let pressX = 0;
 let pressY = 0;
+view.contentDOM.addEventListener('paste', () => {
+  pasteStart = performance.now();
+  pasteMs = null;
+}, true);
 view.contentDOM.addEventListener('pointerdown', event => {
   if (editableState) return;
   pressAt = performance.now();
@@ -49,7 +65,7 @@ function result(extra = {}) {
     viewportFrom: view.viewport.from, viewportTo: view.viewport.to,
     visibleRanges: view.visibleRanges.map(range => ({ from: range.from, to: range.to })),
     domLines: view.dom.querySelectorAll('.cm-line').length, contentHeight: view.contentHeight,
-    viewportHeight: view.scrollDOM.clientHeight, changes, loadMs, status, ok,
+    viewportHeight: view.scrollDOM.clientHeight, changes, loadMs, status, ok, pasteMs,
     selectionFrom: selection.from, selectionTo: selection.to, composing: view.composing,
     focused: view.hasFocus, performance: performanceProbe.snapshot(), ...extra };
   statusElement.textContent = JSON.stringify(data);
@@ -126,6 +142,12 @@ window.noteProbe = {
     ok = replaced && undone && redone && restored;
     status = 'transaction replace / undo / redo / restore; not IME or clipboard validation';
     return result({ check: ok, replaced, undone, redone, restored });
+  },
+  undoLast() {
+    const before = view.state.doc.length;
+    const undone = undo(view);
+    status = undone ? `undo applied; length ${before} -> ${view.state.doc.length}` : 'nothing to undo';
+    return result({ undone });
   },
   jump(fraction) {
     const position = Math.round(view.state.doc.length * Math.max(0, Math.min(1, fraction)));
