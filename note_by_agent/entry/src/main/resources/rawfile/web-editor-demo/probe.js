@@ -23,22 +23,28 @@ const insertImageEffect = StateEffect.define();
 const imagePlaceholder = '\uFFFC';
 const imageData = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==';
 class ImageBlock extends WidgetType {
-  eq() { return true; }
+  constructor(image) { super(); this.image = image; }
+  eq(other) {
+    return other.image.src === this.image.src && other.image.width === this.image.width &&
+      other.image.height === this.image.height;
+  }
   toDOM() {
     const img = document.createElement('img');
-    img.src = imageData;
+    img.src = this.image.src;
     img.alt = '插图试验';
-    img.style.cssText = 'display:block;width:200px;height:100px;object-fit:cover;margin:8px 0;border-radius:8px;background:#eee;';
+    img.style.cssText = `display:block;width:${this.image.width}px;height:${this.image.height}px;object-fit:cover;margin:8px 0;border-radius:8px;background:#eee;`;
     return img;
   }
 }
-const imageMark = Decoration.replace({ widget: new ImageBlock() });
 const imageField = StateField.define({
   create: () => Decoration.none,
   update(deco, transaction) {
-    let next = deco.map(transaction.changes);
+    let next = deco.map(transaction.changes).update({ filter: (from, to) => from < to });
     for (const effect of transaction.effects) {
-      if (effect.is(insertImageEffect)) next = next.update({ add: [imageMark.range(effect.value, effect.value + 1)] });
+      if (effect.is(insertImageEffect)) {
+        const mark = Decoration.replace({ widget: new ImageBlock(effect.value.image) });
+        next = next.update({ add: [mark.range(effect.value.from, effect.value.from + 1)] });
+      }
     }
     return next;
   },
@@ -213,10 +219,16 @@ window.noteProbe = {
     status = undone ? `undo applied; length ${before} -> ${view.state.doc.length}` : 'nothing to undo';
     return result({ undone });
   },
-  insertImage() {
+  insertImage(dataUri, width, height) {
     if (!loaded) { ok = false; status = 'load first'; return result({ check: false }); }
-    const from = view.state.selection.main.from;
-    view.dispatch({ changes: { from, insert: imagePlaceholder }, effects: insertImageEffect.of(from), selection: { anchor: from + 1 } });
+    const selection = view.state.selection.main;
+    const image = {
+      src: typeof dataUri === 'string' && dataUri.startsWith('data:image/') ? dataUri : imageData,
+      width: Math.round(Number(width)) || 200,
+      height: Math.round(Number(height)) || 100
+    };
+    view.dispatch({ changes: { from: selection.from, to: selection.to, insert: imagePlaceholder },
+      effects: insertImageEffect.of({ from: selection.from, image }), selection: { anchor: selection.from + 1 } });
     status = 'image placeholder inserted at caret';
     return result({ images: view.state.field(imageField).size });
   },

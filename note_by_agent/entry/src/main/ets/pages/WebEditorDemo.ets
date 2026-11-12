@@ -1,7 +1,9 @@
 // 在离线 Web 组件中对照长文编辑引擎，仅传入合成试验文字。
 import { webview } from '@kit.ArkWeb';
 import { pasteboard } from '@kit.BasicServicesKit';
+import { common } from '@kit.AbilityKit';
 import { DemoStyle, TECH_DEMOS_ENABLED } from '../diagnostics/DemoCatalog';
+import { DemoImage, nextDemoImage, seedDemoImages } from '../diagnostics/DemoImageStore';
 import { fixtureText } from '../diagnostics/LongDocumentFixture';
 
 @Entry
@@ -42,6 +44,31 @@ struct WebEditorDemo {
       this.status = `已写入 ${text.length} 字到系统剪贴板；请在正文长按后点“粘贴”。`;
     } catch (error) {
       this.status = `写入剪贴板失败：${error}`;
+    }
+  }
+
+  private async insertDemoImage(): Promise<void> {
+    try {
+      const context = this.getUIContext().getHostContext() as common.UIAbilityContext;
+      const image: DemoImage | null = await nextDemoImage(context);
+      if (!image) {
+        this.status = '没有可用内置图片。';
+        return;
+      }
+      this.status = await this.controller.runJavaScript(
+        `window.noteProbe.insertImage(${JSON.stringify(image.dataUri)}, 240, 160)`);
+    } catch (error) {
+      this.status = `插入图片失败：${error}`;
+    }
+  }
+
+  private async seedImages(): Promise<void> {
+    try {
+      const context = this.getUIContext().getHostContext() as common.UIAbilityContext;
+      const count: number = await seedDemoImages(context);
+      console.info(`demo images ready: ${count}`);
+    } catch (error) {
+      console.error(`demo images seed failed: ${error}`);
     }
   }
 
@@ -91,7 +118,7 @@ struct WebEditorDemo {
           Button('撤销').margin({ right: 8, bottom: 8 }).enabled(this.ready && !this.busy)
             .onClick(() => this.execute('window.noteProbe.undoLast()'))
           Button('插图').margin({ right: 8, bottom: 8 }).enabled(this.ready && !this.busy)
-            .onClick(() => this.execute('window.noteProbe.insertImage()'))
+            .onClick(() => { this.insertDemoImage(); })
           Button('只读').margin({ right: 8, bottom: 8 }).enabled(this.ready && !this.busy)
             .onClick(() => this.setEditable(false))
           Button('编辑').margin({ right: 8, bottom: 8 }).enabled(this.ready && !this.busy)
@@ -105,6 +132,7 @@ struct WebEditorDemo {
           .javaScriptAccess(true).domStorageAccess(false).fileAccess(false)
           .onPageEnd(() => {
             this.ready = true;
+            this.seedImages();
             this.execute('window.noteProbe.snapshot()');
           })
       }
