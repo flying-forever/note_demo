@@ -2,7 +2,12 @@
 import { Note } from '../model/Note';
 import { BodyBlock, documentText } from '../model/NoteDocument';
 import { loadAllNotes, loadNote, saveNoteRecord, saveNoteChecked, deleteNoteRecord, purgeNoteRecord,
-  noteRevision, updateNoteRecord, storeCounts, getSetting, noteBlocks, listReferencedImagePaths } from '../repository/NoteSqlRepository';
+  noteRevision, updateNoteRecord, storeCounts, getSetting, noteBlocks, listReferencedImagePaths,
+  noteFilesDirectory } from '../repository/NoteSqlRepository';
+import { NOTE_SCHEMA_VERSION, noteDatabase } from '../repository/NoteDatabase';
+import { loadDraftRecord, saveDraftRecord, deleteDraftRecord } from '../repository/DraftRepository';
+import { cleanupOrphanImages, ensureThumbnail, importNoteImage, MAX_IMAGE_BYTES } from '../platform/NoteAttachments';
+import { fileIo as fs } from '@kit.CoreFileKit';
 
 export interface StoreCheckResult {
   name: string;
@@ -61,4 +66,58 @@ export async function runNoteStoreChecks(report: (result: StoreCheckResult) => v
   const referenced = await listReferencedImagePaths();
   verify(referenced.length === after.attachments, `附件引用数不一致：${referenced.length}/${after.attachments}`);
   report({ name: '写入/版本/删除', detail: `版本 ${rev1}→${rev2}，过期写入被拒，墓碑与清理通过` });
+
+  verify(noteDatabase().version === NOTE_SCHEMA_VERSION, `schema 版本异常：${noteDatabase().version}`);
+  const draftId: string = `draft-check-${Date.now()}`;
+  await saveDraftRecord({ draftId: draftId, noteId: '', groupName: '', baseRevision: 0, title: '草稿自检',
+    blocksJson: '[{"id":"d0","text":"草稿正文","imageId":""}]', imagesJson: '[]',
+    createdAt: Date.now(), updatedAt: Date.now() });
+  const draft = await loadDraftRecord(draftId);
+  verify(draft?.title === '草稿自检' && draft?.blocksJson.includes('草稿正文') === true, '草稿读回失败');
+  await deleteDraftRecord(draftId);
+  verify((await loadDraftRecord(draftId)) === undefined, '草稿删除失败');
+  report({ name: '草稿表', detail: `schema v${NOTE_SCHEMA_VERSION}，写入/读回/删除通过` });
+
+  const filesDir: string = noteFilesDirectory();
+  const imageDir: string = filesDir + '/note-images';
+  const limitSource: string = filesDir + '/import-limit-check';
+  const limitFile = fs.openSync(limitSource, fs.OpenMode.CREATE | fs.OpenMode.READ_WRITE | fs.OpenMode.TRUNC);
+  try {
+    fs.writeSync(limitFile.fd, new ArrayBuffer(MAX_IMAGE_BYTES + 1));
+  } finally {
+    fs.closeSync(limitFile);
+  }
+  let rejected: boolean = false;
+  try {
+    await importNoteImage(filesDir, limitSource);
+  } catch {
+    rejected = true;
+  }
+  try { fs.unlinkSync(limitSource); } catch {}
+  verify(rejected, '超过 500KB 的导入未被拒绝');
+  const leftovers: string[] = fs.accessSync(imageDir) ?
+    fs.listFileSync(imageDir).filter((name: string) => name.endsWith('.part')) : [];
+  verify(leftovers.length === 0, `导入失败残留临时文件：${leftovers.length}`);
+  const orphan: string = imageDir + '/orphan-check';
+  if (!fs.accessSync(imageDir)) { fs.mkdirSync(imageDir, true); }
+  const orphanFile = fs.openSync(orphan, fs.OpenMode.CREATE | fs.OpenMode.READ_WRITE | fs.OpenMode.TRUNC);
+  fs.writeSync(orphanFile.fd, new ArrayBuffer(1));
+  fs.closeSync(orphanFile);
+  cleanupOrphanImages(filesDir, await listReferencedImagePaths(), 0);
+  verify(!fs.accessSync(orphan), '孤立附件未被清理');
+  const orphanThumb: string = filesDir + '/note-images-thumbs/orphan-check.thumb';
+  const thumbDir: string = filesDir + '/note-images-thumbs';
+  if (!fs.accessSync(thumbDir)) { fs.mkdirSync(thumbDir, true); }
+  const thumbFile = fs.openSync(orphanThumb, fs.OpenMode.CREATE | fs.OpenMode.READ_WRITE | fs.OpenMode.TRUNC);
+  fs.writeSync(thumbFile.fd, new ArrayBuffer(1));
+  fs.closeSync(thumbFile);
+  cleanupOrphanImages(filesDir, await listReferencedImagePaths(), 0);
+  verify(!fs.accessSync(orphanThumb), '孤立缩略图未被清理');
+  const imagePath: string | undefined = (await listReferencedImagePaths()).find((path: string) => fs.accessSync(path));
+  if (imagePath !== undefined) {
+    const thumb: string = await ensureThumbnail(imagePath);
+    verify(thumb !== imagePath && fs.accessSync(thumb), '缩略图生成失败');
+    report({ name: '缩略图', detail: `长边 ${960} 以内、质量 75，可重建；派生文件不进入附件记录` });
+  }
+  report({ name: '附件导入与清理', detail: `超过 ${MAX_IMAGE_BYTES} 字节被拒且无 .part 残留，孤立文件可删除` });
 }

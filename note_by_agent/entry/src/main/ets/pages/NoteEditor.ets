@@ -9,11 +9,12 @@ import { photoAccessHelper } from '@kit.MediaLibraryKit';
 import { GROUP_ALL, GROUP_UNFILED, NOTE_GROUPS, Note } from '../model/Note';
 import { changeNoteSkin, deleteNote, moveNote, NoteEditorParams } from '../services/NoteService';
 import { loadFullNote, refreshNotes } from '../repository/NoteRepository';
-import { listReferencedImagePaths } from '../repository/NoteSqlRepository';
+import { listReferencedImagePaths, loadStoredNote, StoredNoteRecord } from '../repository/NoteSqlRepository';
+import { DraftRecord, deleteDraftRecord, findDraftForNote, loadDraftRecord, saveDraftRecord } from '../repository/DraftRepository';
 import { findSkin, isDynamicSkin, NoteSkin } from '../model/NoteSkin';
 import { NoteEditorSession } from '../viewmodel/NoteEditorSession';
 import { noteTextCaret } from '../platform/NoteTextHitTest';
-import { importNoteImage, releaseUnusedImages } from '../platform/NoteAttachments';
+import { importNoteImage, releaseUnusedImages, thumbnailFor } from '../platform/NoteAttachments';
 import { NoteShare } from '../platform/NoteShare';
 import { common } from '@kit.AbilityKit';
 
@@ -25,6 +26,7 @@ const BODY_LINE_HEIGHT: number = 26;
 const TITLE_LINE_HEIGHT: number = 40;
 const SKIN_PANEL_HEIGHT: number = 162;
 const SCROLL_RESTORE_DELAY: number = 60;
+const DRAFT_SAVE_DELAY: number = 800;
 const BODY_CORNER: number = 12;
 const IMAGE_CORNER: number = 8;
 const BODY_END_SPACE: number = 12;
@@ -82,6 +84,10 @@ struct NoteEditor {
   private folderGestureAllowed: boolean = false;
   private activeInput: string = '';
   private keyboardTimer: number = -1;
+  private draftId: string = '';
+  private draftCreatedAt: number = 0;
+  private draftTimer: number = -1;
+  private draftPrompted: boolean = false;
   @State private selectedGroup: string = '';
   private bodyScroller: Scroller = new Scroller();
   private gestureFinishedAt: number = 0;
@@ -93,23 +99,100 @@ struct NoteEditor {
   aboutToAppear(): void {
     this.sessionGeneration++;
     this.params = this.getUIContext().getRouter().getParams() as NoteEditorParams;
+    this.draftCreatedAt = Date.now();
+    this.draftId = this.params.draftId ?? (this.params.id !== '' ? this.params.id : `draft-${Date.now()}-${Math.floor(Math.random() * 10000)}`);
     this.session.load(undefined);
     this.editing = this.params.id === '';
     this.selectedGroup = this.params.group;
     this.loadInitialNote();
   }
 
+  private parseDraft(draft: DraftRecord): boolean {
+    let blocks: BodyBlock[] = [];
+    let images: NoteImage[] = [];
+    try {
+      blocks = JSON.parse(draft.blocksJson) as BodyBlock[];
+      images = JSON.parse(draft.imagesJson) as NoteImage[];
+    } catch {
+      return false;
+    }
+    if (blocks.length === 0) {
+      blocks = [textBlock('')];
+    }
+    this.draftId = draft.draftId;
+    this.draftCreatedAt = draft.createdAt;
+    this.session.baseRevision = draft.baseRevision;
+    this.session.restoreDraft(draft.title, blocks, images);
+    this.editing = true;
+    this.selectedGroup = draft.groupName !== '' ? draft.groupName : this.selectedGroup;
+    return true;
+  }
+
+  private async promptDraft(draft: DraftRecord, currentRevision: number): Promise<void> {
+    const generation: number = this.sessionGeneration;
+    const stale: boolean = draft.baseRevision !== currentRevision;
+    try {
+      const choice = await this.getUIContext().getPromptAction().showDialog({
+        title: stale ? '草稿基于旧版本' : '发现未保存的草稿',
+        message: stale ? '正式笔记已在其他入口更新。恢复草稿后保存会覆盖当前版本，或忽略并删除这份草稿。' :
+          '可以恢复上次编辑内容，或忽略并删除这份草稿。',
+        buttons: [{ text: '恢复草稿', color: $r('app.color.accent') },
+          { text: '忽略并删除', color: $r('app.color.text_primary') }]
+      });
+      if (this.disposed || generation !== this.sessionGeneration) {
+        return;
+      }
+      if (choice.index === 0) {
+        this.parseDraft(draft);
+      } else {
+        await deleteDraftRecord(draft.draftId);
+      }
+    } catch {
+      return;
+    }
+  }
+
   private async loadInitialNote(): Promise<void> {
     const generation: number = this.sessionGeneration;
-    const note: Note | undefined = await loadFullNote(this.params.id);
+    if (this.params.draftId) {
+      const draft: DraftRecord | undefined = await loadDraftRecord(this.params.draftId);
+      if (draft && !this.disposed && generation === this.sessionGeneration) {
+        let note: Note | undefined = undefined;
+        let revision: number = 0;
+        if (draft.noteId !== '') {
+          const stored: StoredNoteRecord | undefined = await loadStoredNote(draft.noteId);
+          note = stored?.note;
+          revision = stored?.revision ?? 0;
+        }
+        this.original = note;
+        this.session.load(note);
+        this.session.baseRevision = revision;
+        if (note && draft.baseRevision !== revision) {
+          await this.promptDraft(draft, revision);
+          return;
+        }
+        this.parseDraft(draft);
+        return;
+      }
+    }
+    const stored: StoredNoteRecord | undefined = await loadStoredNote(this.params.id);
     if (this.disposed || generation !== this.sessionGeneration) {
       return;
     }
+    const note: Note | undefined = stored?.note;
     this.original = note;
     this.session.load(note);
+    this.session.baseRevision = stored?.revision ?? 0;
     this.editing = note === undefined;
     this.selectedGroup = note?.group ?? this.params.group;
     this.skinId = note?.skinId ?? 'white';
+    if (note && !this.draftPrompted) {
+      this.draftPrompted = true;
+      const draft: DraftRecord | undefined = await findDraftForNote(note.id);
+      if (draft && !this.disposed && generation === this.sessionGeneration) {
+        await this.promptDraft(draft, stored?.revision ?? 0);
+      }
+    }
   }
 
   private async releaseImages(images: NoteImage[]): Promise<void> {
@@ -118,6 +201,41 @@ struct NoteEditor {
     } catch {
       return;
     }
+  }
+
+  private scheduleDraftSave(): void {
+    if (this.disposed) {
+      return;
+    }
+    clearTimeout(this.draftTimer);
+    this.draftTimer = setTimeout(() => { this.persistDraft().catch(() => {}); }, DRAFT_SAVE_DELAY);
+  }
+
+  private async persistDraft(): Promise<void> {
+    if (!this.session.isDirty()) {
+      return;
+    }
+    if (isBlankNote(this.session.title, this.session.blocks)) {
+      await deleteDraftRecord(this.draftId);
+      return;
+    }
+    const draft: DraftRecord = {
+      draftId: this.draftId,
+      noteId: this.params.id,
+      groupName: this.selectedGroup,
+      baseRevision: this.session.baseRevision,
+      title: this.session.title,
+      blocksJson: JSON.stringify(this.session.blocks),
+      imagesJson: JSON.stringify(this.session.images),
+      createdAt: this.draftCreatedAt,
+      updatedAt: Date.now()
+    };
+    await saveDraftRecord(draft);
+  }
+
+  private async flushDraft(): Promise<void> {
+    clearTimeout(this.draftTimer);
+    await this.persistDraft();
   }
 
   async onPageShow(): Promise<void> {
@@ -129,12 +247,12 @@ struct NoteEditor {
       this.sessionGeneration++;
       await this.releaseImages(this.session.images);
       this.params = requested;
-      const note: Note | undefined = await loadFullNote(requested.id);
-      this.original = note;
-      this.session.load(note);
-      this.skinId = note?.skinId ?? 'white';
-      this.selectedGroup = note?.group ?? requested.group;
-      this.editing = note === undefined;
+      this.selectedGroup = requested.group;
+      this.draftPrompted = false;
+      this.draftCreatedAt = Date.now();
+      this.draftId = requested.draftId ?? (requested.id !== '' ? requested.id : `draft-${Date.now()}-${Math.floor(Math.random() * 10000)}`);
+      this.session.load(undefined);
+      await this.loadInitialNote();
       this.skinPickerVisible = false;
       this.menuVisible = false;
       this.folderPickerVisible = false;
@@ -162,6 +280,7 @@ struct NoteEditor {
     this.pageVisible = false;
     clearTimeout(this.keyboardTimer);
     clearTimeout(this.scrollRestoreTimer);
+    this.flushDraft().catch(() => {});
   }
 
   private async refreshExternalNote(latest: Note): Promise<void> {
@@ -176,6 +295,8 @@ struct NoteEditor {
         if (this.disposed || generation !== this.sessionGeneration || latest.id !== this.params.id) { return; }
         if (choice.index === 0) {
           this.original = latest;
+          const stored: StoredNoteRecord | undefined = await loadStoredNote(latest.id);
+          this.session.baseRevision = stored?.revision ?? this.session.baseRevision;
           return;
         }
       } catch {
@@ -183,10 +304,15 @@ struct NoteEditor {
       }
     }
     if (this.disposed || generation !== this.sessionGeneration || latest.id !== this.params.id) { return; }
+    await deleteDraftRecord(this.draftId);
     await this.releaseImages(this.session.images);
     this.sessionGeneration++;
     this.original = latest;
     this.session.load(latest);
+    const stored: StoredNoteRecord | undefined = await loadStoredNote(latest.id);
+    this.session.baseRevision = stored?.revision ?? 0;
+    this.draftId = latest.id;
+    this.draftCreatedAt = Date.now();
     this.skinId = latest.skinId ?? 'white';
     this.selectedGroup = latest.group;
     this.params.group = latest.group;
@@ -208,8 +334,10 @@ struct NoteEditor {
           blocks: this.session.blocks, images: this.session.referencedImages(), skinId: this.skinId,
           expectedSnapshot: '' });
         if (result.status === 'saved' && result.note) {
+          await deleteDraftRecord(this.draftId);
           this.params.id = result.note.id;
           this.params.group = result.note.group;
+          this.draftId = result.note.id;
           this.original = result.note;
           this.session.markSaved();
           this.getUIContext().getPromptAction().showToast({ message: '已另存为新笔记' });
@@ -217,6 +345,7 @@ struct NoteEditor {
           this.getUIContext().getPromptAction().showToast({ message: '另存失败，当前草稿仍保留' });
         }
       } else {
+        await deleteDraftRecord(this.draftId);
         await this.releaseImages(this.session.images);
         this.session.markSaved();
         this.getUIContext().getRouter().back();
@@ -242,8 +371,8 @@ struct NoteEditor {
   aboutToDisappear(): void {
     clearTimeout(this.keyboardTimer);
     clearTimeout(this.scrollRestoreTimer);
+    this.flushDraft().then(() => this.releaseImages(this.session.images)).catch(() => {});
     this.disposed = true;
-    this.releaseImages(this.session.images).catch(() => {});
     this.share.dispose();
   }
 
@@ -264,12 +393,14 @@ struct NoteEditor {
 
   private changeText(value: string, field: string, preview?: PreviewText): void {
     this.session.changeTitle(value, !!preview && preview.value.length > 0);
+    this.scheduleDraftSave();
   }
 
   private preparePaste(): void { this.session.preparePaste(); }
 
   private restoreHistory(redo: boolean): void {
     this.session.restoreHistory(redo);
+    this.scheduleDraftSave();
     this.selectedImage = '';
     this.focusTarget = this.session.activeBlock;
     clearTimeout(this.keyboardTimer);
@@ -303,6 +434,10 @@ struct NoteEditor {
 
   private imageItem(id: string): NoteImage { return this.session.imageItem(id); }
 
+  private displayImagePath(item: NoteImage): string {
+    return thumbnailFor(item.path);
+  }
+
   private async insertImage(): Promise<void> {
     if (this.pickingImage) { return; }
     this.pickingImage = true;
@@ -324,6 +459,7 @@ struct NoteEditor {
       }
       this.focusTarget = this.session.insertImage(item, target, offset);
       this.editing = true;
+      this.scheduleDraftSave();
     } catch {
       if (!this.disposed) {
         this.getUIContext().getPromptAction().showToast({ message: '无法插入图片，请重新选择' });
@@ -339,12 +475,14 @@ struct NoteEditor {
       this.captionVisible = true;
     } else if (action === '尺寸') {
       this.session.images = this.session.images.map((item: NoteImage) => item.id === id ? copyImage(item, item.caption, !item.small) : item);
+      this.scheduleDraftSave();
     } else if (action === '详情') {
       this.zoom = 1;
       this.detailImage = id;
     } else {
       this.session.removeImage(id);
       this.selectedImage = '';
+      this.scheduleDraftSave();
     }
   }
 
@@ -352,6 +490,7 @@ struct NoteEditor {
 
   private changeBlock(value: string, id: string, preview?: PreviewText): void {
     this.session.changeBlock(value, id, !!preview && preview.value.length > 0);
+    this.scheduleDraftSave();
   }
 
   @Builder
@@ -386,7 +525,7 @@ struct NoteEditor {
   @Builder
   ImageBlock(block: BodyBlock) {
     Column({ space: BODY_INPUT_VERTICAL_PADDING }) {
-      Image('file://' + this.imageItem(block.imageId).path)
+      Image('file://' + this.displayImagePath(this.imageItem(block.imageId)))
         .width(this.imageItem(block.imageId).small ? IMAGE_SMALL_WIDTH : '100%')
         .aspectRatio(this.imageItem(block.imageId).width / this.imageItem(block.imageId).height)
         .objectFit(ImageFit.Contain)
@@ -561,6 +700,7 @@ struct NoteEditor {
         this.getUIContext().getPromptAction().showToast({ message: '请填写标题或正文' });
         return false;
       }
+      await deleteDraftRecord(this.draftId);
       return true;
     }
     return this.commitDraft(false);
@@ -571,9 +711,14 @@ struct NoteEditor {
       title: this.session.title, blocks: this.session.blocks, images: this.session.referencedImages(),
       skinId: this.skinId, expectedSnapshot: snapshotNote(this.original), persistToDesktop: persistToDesktop });
     if (result.status === 'saved' && result.note) {
+      await deleteDraftRecord(this.draftId);
       this.original = result.note;
       this.params.id = result.note.id;
       this.params.group = result.note.group;
+      this.draftId = result.note.id;
+      this.draftCreatedAt = Date.now();
+      const stored: StoredNoteRecord | undefined = await loadStoredNote(result.note.id);
+      this.session.baseRevision = stored?.revision ?? this.session.baseRevision + 1;
       this.session.markSaved();
       return true;
     }
@@ -881,6 +1026,7 @@ struct NoteEditor {
             this.session.images = this.session.images.map((item: NoteImage) => item.id === this.selectedImage ?
               copyImage(item, value.trim()) : item);
             this.captionVisible = false;
+            this.scheduleDraftSave();
           } })
       }
       if (this.skinPickerVisible) {

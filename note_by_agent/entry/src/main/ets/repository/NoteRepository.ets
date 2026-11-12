@@ -6,7 +6,8 @@ import { initializeDesktopRepository, listDesktopRecords, persistDesktopNote, de
 import { openNoteDatabase } from './NoteDatabase';
 import { loadNoteSummaries, loadStoredNote, saveNoteRecord, saveNoteChecked, deleteNoteRecord, updateNoteRecord,
   migrateDesktopRecords, seedSampleNotes, getSetting, setSetting, setNoteFilesDir, noteSummary,
-  NoteWriteResult } from './NoteSqlRepository';
+  listReferencedImagePaths, NoteWriteResult } from './NoteSqlRepository';
+import { cleanupOrphanImages, ensureThumbnail } from '../platform/NoteAttachments';
 
 const SEED_KEY: string = 'bootstrap.samples.v1';
 const SEED_VALUE: string = 'seeded';
@@ -16,6 +17,7 @@ const MIGRATION_ERROR: string = 'migration.desktop_json.v1.error';
 
 let notes: Note[] = [];
 let ready: boolean = false;
+let filesDirectory: string = '';
 
 export function noteRepositoryReady(): boolean {
   return ready;
@@ -24,6 +26,7 @@ export function noteRepositoryReady(): boolean {
 export async function initializeNoteRepository(context: common.Context): Promise<void> {
   initializeDesktopRepository(context.filesDir);
   setNoteFilesDir(context.filesDir);
+  filesDirectory = context.filesDir;
   await openNoteDatabase(context);
   if ((await getSetting(MIGRATION_KEY)) !== 'done') {
     await setSetting(MIGRATION_KEY, 'running');
@@ -42,7 +45,22 @@ export async function initializeNoteRepository(context: common.Context): Promise
     await setSetting(SEED_KEY, SEED_VALUE);
   }
   notes = await loadNoteSummaries();
+  try {
+    cleanupOrphanImages(context.filesDir, await listReferencedImagePaths());
+  } catch {
+  }
   ready = true;
+  warmThumbnails().catch(() => {});
+}
+
+async function warmThumbnails(): Promise<void> {
+  try {
+    const referenced: string[] = await listReferencedImagePaths();
+    for (const path of referenced) {
+      await ensureThumbnail(path);
+    }
+  } catch {
+  }
 }
 
 export async function refreshNotes(): Promise<void> {
@@ -119,4 +137,8 @@ export async function removeNote(id: string): Promise<void> {
   await deleteNoteRecord(id);
   deleteDesktopNote(id);
   notes = notes.filter((note: Note) => note.id !== id);
+  try {
+    cleanupOrphanImages(filesDirectory, await listReferencedImagePaths());
+  } catch {
+  }
 }

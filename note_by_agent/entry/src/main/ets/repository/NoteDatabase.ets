@@ -3,7 +3,7 @@ import { relationalStore } from '@kit.ArkData';
 import { common } from '@kit.AbilityKit';
 
 export const NOTE_DATABASE_NAME: string = 'notes.db';
-export const NOTE_SCHEMA_VERSION: number = 2;
+export const NOTE_SCHEMA_VERSION: number = 3;
 
 const SCHEMA_STATEMENTS: string[] = [
   `CREATE TABLE IF NOT EXISTS notes (
@@ -54,7 +54,20 @@ const SCHEMA_STATEMENTS: string[] = [
   `CREATE TABLE IF NOT EXISTS settings (
     key TEXT PRIMARY KEY NOT NULL,
     value TEXT NOT NULL DEFAULT ''
-  )`
+  )`,
+  `CREATE TABLE IF NOT EXISTS drafts (
+    draft_id TEXT PRIMARY KEY NOT NULL,
+    note_id TEXT NOT NULL DEFAULT '',
+    group_name TEXT NOT NULL DEFAULT '',
+    base_revision INTEGER NOT NULL DEFAULT 0,
+    title TEXT NOT NULL DEFAULT '',
+    blocks_json TEXT NOT NULL DEFAULT '[]',
+    images_json TEXT NOT NULL DEFAULT '[]',
+    created_at INTEGER NOT NULL DEFAULT 0,
+    updated_at INTEGER NOT NULL DEFAULT 0
+  )`,
+  'CREATE INDEX IF NOT EXISTS drafts_updated ON drafts(updated_at DESC)',
+  'CREATE INDEX IF NOT EXISTS drafts_note ON drafts(note_id)'
 ];
 
 let opened: relationalStore.RdbStore | undefined = undefined;
@@ -73,6 +86,21 @@ async function upgrade(store: relationalStore.RdbStore, from: number): Promise<v
     await store.executeSql('ALTER TABLE attachments ADD COLUMN small INTEGER NOT NULL DEFAULT 0');
     await store.executeSql('CREATE INDEX IF NOT EXISTS notes_order_v2 ON notes(deleted, updated_at DESC, id ASC)');
     await store.executeSql('CREATE UNIQUE INDEX IF NOT EXISTS blocks_note_block ON blocks(note_id, block_id)');
+  }
+  if (from > 0 && from < 3) {
+    await store.executeSql(`CREATE TABLE IF NOT EXISTS drafts (
+      draft_id TEXT PRIMARY KEY NOT NULL,
+      note_id TEXT NOT NULL DEFAULT '',
+      group_name TEXT NOT NULL DEFAULT '',
+      base_revision INTEGER NOT NULL DEFAULT 0,
+      title TEXT NOT NULL DEFAULT '',
+      blocks_json TEXT NOT NULL DEFAULT '[]',
+      images_json TEXT NOT NULL DEFAULT '[]',
+      created_at INTEGER NOT NULL DEFAULT 0,
+      updated_at INTEGER NOT NULL DEFAULT 0
+    )`);
+    await store.executeSql('CREATE INDEX IF NOT EXISTS drafts_updated ON drafts(updated_at DESC)');
+    await store.executeSql('CREATE INDEX IF NOT EXISTS drafts_note ON drafts(note_id)');
   }
   if (from > NOTE_SCHEMA_VERSION) {
     throw new Error(`笔记数据库版本 ${from} 高于当前支持版本 ${NOTE_SCHEMA_VERSION}`);

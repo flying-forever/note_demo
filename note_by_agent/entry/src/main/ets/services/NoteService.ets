@@ -3,11 +3,13 @@ import { Note } from '../model/Note';
 import { BodyBlock, NoteImage, documentText, copyImage } from '../model/NoteDocument';
 import { commitNote, commitNoteChecked, removeNote, updateNoteMeta } from '../repository/NoteRepository';
 import { loadStoredNote, StoredNoteRecord } from '../repository/NoteSqlRepository';
+import { deleteDraftsForNote } from '../repository/DraftRepository';
 import { refreshDesktopCards } from '../platform/DesktopCards';
 
 export interface NoteEditorParams {
   id: string;
   group: string;
+  draftId?: string;
 }
 
 export interface NoteSaveRequest {
@@ -131,6 +133,7 @@ export async function changeNoteSkin(id: string, skinId: string): Promise<void> 
 }
 
 export async function deleteNote(id: string): Promise<void> {
+  await deleteDraftsForNote(id);
   await removeNote(id);
   refreshDesktopCards(id).catch(() => {});
 }

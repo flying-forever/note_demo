@@ -4,6 +4,7 @@ import { Note } from '../model/Note';
 import { BodyBlock, NoteImage, documentText } from '../model/NoteDocument';
 import { DesktopRecord } from './DesktopNoteRepository';
 import { noteDatabase } from './NoteDatabase';
+import { draftImagePaths } from './DraftRepository';
 
 const SUMMARY_LIMIT: number = 120;
 
@@ -11,6 +12,10 @@ let noteFilesDir: string = '';
 
 export function setNoteFilesDir(directory: string): void {
   noteFilesDir = directory;
+}
+
+export function noteFilesDirectory(): string {
+  return noteFilesDir;
 }
 
 function relativeImagePath(path: string): string {
@@ -129,6 +134,12 @@ export async function listReferencedImagePaths(): Promise<string[]> {
     }
   } finally {
     result.close();
+  }
+  const drafted: string[] = await draftImagePaths();
+  for (const path of drafted) {
+    if (!paths.includes(path)) {
+      paths.push(path);
+    }
   }
   return paths;
 }
@@ -322,6 +333,7 @@ export async function saveNoteRecord(note: Note): Promise<Note> {
 export async function deleteNoteRecord(id: string): Promise<void> {
   const store = noteDatabase();
   await store.executeSql('UPDATE notes SET deleted = 1, updated_at = ? WHERE id = ?', [Date.now(), id]);
+  await store.executeSql('DELETE FROM attachments WHERE note_id = ?', [id]);
 }
 
 export async function purgeNoteRecord(id: string): Promise<void> {

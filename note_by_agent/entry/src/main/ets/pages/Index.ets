@@ -5,6 +5,7 @@ import { TECH_DEMOS_ENABLED } from '../diagnostics/DemoCatalog';
 import { GROUP_ALL, GROUP_UNFILED, NOTE_GROUPS, Note, noteCardTitle } from '../model/Note';
 import { NoteEditorParams } from '../services/NoteService';
 import { listNotes, refreshNotes, findNote } from '../repository/NoteRepository';
+import { DraftRecord, listDraftRecords } from '../repository/DraftRepository';
 
 const LARGE_TITLE_FONT_SIZE: number = 44;
 const HEADER_SLOT_HEIGHT: number = 56;
@@ -23,6 +24,7 @@ struct Index {
   @State searchProgress: number = 0;
   @State collapseProgress: number = 0;
   @State private allNotes: Note[] = listNotes();
+  @State private drafts: DraftRecord[] = [];
 
   private searchReleaseTimer: number = -1;
   private touchingList: boolean = false;
@@ -30,10 +32,20 @@ struct Index {
   private scroller: Scroller = new Scroller();
 
   onPageShow(): void {
-    refreshNotes().then(() => {
+    refreshNotes().then(async () => {
       this.allNotes = listNotes();
+      try {
+        this.drafts = await listDraftRecords();
+      } catch {
+        this.drafts = [];
+      }
       this.openDesktopLaunch();
     }).catch(() => {});
+  }
+
+  private openDraft(draft: DraftRecord): void {
+    const params: NoteEditorParams = { id: draft.noteId, group: draft.groupName, draftId: draft.draftId };
+    this.getUIContext().getRouter().pushUrl({ url: 'pages/NoteEditor', params: params });
   }
 
   private openDesktopLaunch(): void {
@@ -317,6 +329,35 @@ struct Index {
   }
 
   @Builder
+  DraftBanner() {
+    if (this.drafts.length > 0) {
+      Row() {
+        Column({ space: 2 }) {
+          Text('未完成的草稿')
+            .fontSize(12)
+            .fontColor($r('app.color.accent'))
+          Text(this.drafts[0].title.trim() !== '' ? this.drafts[0].title.trim() : '无标题草稿')
+            .fontSize(15)
+            .fontColor($r('app.color.text_primary'))
+            .maxLines(1)
+            .textOverflow({ overflow: TextOverflow.Ellipsis })
+        }
+        .layoutWeight(1)
+        .alignItems(HorizontalAlign.Start)
+        Text(this.drafts.length > 1 ? `${this.drafts.length} 份` : '继续编辑')
+          .fontSize(12)
+          .fontColor($r('app.color.text_secondary'))
+      }
+      .width('100%')
+      .padding({ left: 14, right: 14, top: 10, bottom: 10 })
+      .backgroundColor($r('app.color.card_bg'))
+      .borderRadius(12)
+      .margin({ bottom: 8 })
+      .onClick(() => this.openDraft(this.drafts[0]))
+    }
+  }
+
+  @Builder
   NoteItem(item: Note) {
     Column() {
       NoteCard({
@@ -425,6 +466,11 @@ struct Index {
             this.HeaderSlot()
             this.SearchRow()
             this.GroupBar()
+            Column() {
+              this.DraftBanner()
+            }
+            .width('100%')
+            .padding({ left: 16, right: 16 })
             Column() {
               this.NoteList()
             }
