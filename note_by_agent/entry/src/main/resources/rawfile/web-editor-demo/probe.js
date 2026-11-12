@@ -84,7 +84,7 @@ function lineGaps() {
   return { count, visible, max, samples, firstTop: rects.length ? Math.round(rects[0].top - box.top) : null,
     lastBottom: rects.length ? Math.round(rects[rects.length - 1].bottom - box.bottom) : null };
 }
-const extensions = [EditorView.lineWrapping, history(), keymap.of([...defaultKeymap, ...historyKeymap]),
+const extensions = [EditorView.lineWrapping, history({ newGroupDelay: 1000 }), keymap.of([...defaultKeymap, ...historyKeymap]),
   EditorView.updateListener.of(update => {
     if (update.docChanged) {
       changes++;
@@ -164,6 +164,7 @@ window.noteProbe = {
     return result();
   },
   snapshot() { return result(); },
+  getText() { return JSON.stringify(view.state.doc.toString()); },
   startPerformance() { performanceProbe.start(); return result(); },
   stopPerformance() { performanceProbe.stop(); return result(); },
   focusTail() {

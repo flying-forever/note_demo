@@ -2,6 +2,7 @@
   "src": [
     "pages/Index",
     "pages/NoteEditor",
+    "pages/NoteEditorWeb",
     "pages/NoteDesktop",
     "pages/DesktopNoteEdit",
     "pages/TechDemos",

@@ -38,7 +38,7 @@ const MENU_WIDTH: number = 200;
 const MENU_ROW_HEIGHT: number = 56;
 const MENU_TOP: number = 16;
 const MENU_CORNER: number = 20;
-const MENU_ITEMS: string[] = ['设置提醒', '设为私密', '发送到桌面', '移动到', '删除'];
+const MENU_ITEMS: string[] = ['设置提醒', '设为私密', '发送到桌面', '长文编辑', '移动到', '删除'];
 const FOLDER_GESTURE_DISTANCE: number = 8;
 const FOLDER_HEIGHT: number = 40;
 const SETTLE_DURATION: number = 180;
@@ -366,6 +366,25 @@ struct NoteEditor {
     if (await this.commitDraft(true)) {
       this.getUIContext().getRouter().pushUrl({ url: 'pages/NoteDesktop', params: this.params });
     }
+  }
+
+  private async openWebEditor(): Promise<void> {
+    if (this.params.id === '') {
+      this.menuVisible = false;
+      this.getUIContext().getPromptAction().showToast({ message: '请先保存笔记再使用长文外壳' });
+      return;
+    }
+    if (this.session.images.length > 0) {
+      this.menuVisible = false;
+      this.getUIContext().getPromptAction().showToast({ message: '含图笔记暂不支持长文外壳' });
+      return;
+    }
+    if (!(await this.saveBeforeLeaving())) {
+      return;
+    }
+    this.menuVisible = false;
+    this.getUIContext().getRouter().pushUrl({ url: 'pages/NoteEditorWeb', params: this.params })
+      .catch(() => this.getUIContext().getPromptAction().showToast({ message: '无法打开长文外壳' }));
   }
 
   aboutToDisappear(): void {
@@ -1064,6 +1083,8 @@ struct NoteEditor {
                   this.confirmDelete();
                 } else if (label === '发送到桌面') {
                   this.sendToDesktop();
+                } else if (label === '长文编辑') {
+                  this.openWebEditor();
                 } else if (label === '移动到') {
                   this.menuVisible = false;
                   this.folderPickerVisible = true;

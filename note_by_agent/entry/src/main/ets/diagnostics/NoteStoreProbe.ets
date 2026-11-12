@@ -7,6 +7,7 @@ import { loadAllNotes, loadNote, saveNoteRecord, saveNoteChecked, deleteNoteReco
 import { NOTE_SCHEMA_VERSION, noteDatabase } from '../repository/NoteDatabase';
 import { loadDraftRecord, saveDraftRecord, deleteDraftRecord } from '../repository/DraftRepository';
 import { cleanupOrphanImages, ensureThumbnail, importNoteImage, MAX_IMAGE_BYTES } from '../platform/NoteAttachments';
+import { deleteNote } from '../services/NoteService';
 import { fileIo as fs } from '@kit.CoreFileKit';
 
 export interface StoreCheckResult {
@@ -119,5 +120,19 @@ export async function runNoteStoreChecks(report: (result: StoreCheckResult) => v
     verify(thumb !== imagePath && fs.accessSync(thumb), '缩略图生成失败');
     report({ name: '缩略图', detail: `长边 ${960} 以内、质量 75，可重建；派生文件不进入附件记录` });
   }
+  const attachedNoteId: string = `delete-check-${Date.now()}`;
+  const attachedPath: string = imageDir + '/probe-delete-image';
+  const attachedFile = fs.openSync(attachedPath, fs.OpenMode.CREATE | fs.OpenMode.READ_WRITE | fs.OpenMode.TRUNC);
+  fs.writeSync(attachedFile.fd, new ArrayBuffer(1));
+  fs.closeSync(attachedFile);
+  await saveNoteRecord({ id: attachedNoteId, title: '删除清理自检', content: '', timeLabel: '', group: '',
+    skinId: 'white', blocks: [{ id: `${attachedNoteId}:0`, text: '', imageId: 'probe-image' }],
+    images: [{ id: 'probe-image', path: attachedPath, name: 'probe-image', width: 1, height: 1, bytes: 1,
+      caption: '', small: false }] });
+  verify(fs.accessSync(attachedPath), '删除测试附件未落盘');
+  await deleteNote(attachedNoteId);
+  verify(!fs.accessSync(attachedPath), '删除笔记后附件未清理');
+  await purgeNoteRecord(attachedNoteId);
+  report({ name: '删除清理', detail: '带附件笔记删除后原图与附件记录同步清理' });
   report({ name: '附件导入与清理', detail: `超过 ${MAX_IMAGE_BYTES} 字节被拒且无 .part 残留，孤立文件可删除` });
 }

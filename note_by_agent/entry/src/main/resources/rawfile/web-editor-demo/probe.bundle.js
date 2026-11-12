@@ -16121,7 +16121,7 @@
   }
   var extensions = [
     EditorView.lineWrapping,
-    history(),
+    history({ newGroupDelay: 1000 }),
     keymap.of([...defaultKeymap, ...historyKeymap]),
     EditorView.updateListener.of((update) => {
       if (update.docChanged) {
@@ -16225,6 +16225,9 @@
     },
     snapshot() {
       return result();
+    },
+    getText() {
+      return JSON.stringify(view.state.doc.toString());
     },
     startPerformance() {
       performanceProbe.start();

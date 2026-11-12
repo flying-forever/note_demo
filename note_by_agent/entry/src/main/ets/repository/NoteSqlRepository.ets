@@ -330,6 +330,21 @@ export async function saveNoteRecord(note: Note): Promise<Note> {
     skinId: note.skinId, blocks: blocks, images: note.images ?? [] };
 }
 
+export async function noteAttachmentPaths(noteId: string): Promise<string[]> {
+  const store = noteDatabase();
+  const result: relationalStore.ResultSet = await store.querySql(
+    'SELECT rel_path FROM attachments WHERE note_id = ?', [noteId]);
+  const paths: string[] = [];
+  try {
+    while (result.goToNextRow()) {
+      paths.push(absoluteImagePath(result.getString(0)));
+    }
+  } finally {
+    result.close();
+  }
+  return paths;
+}
+
 export async function deleteNoteRecord(id: string): Promise<void> {
   const store = noteDatabase();
   await store.executeSql('UPDATE notes SET deleted = 1, updated_at = ? WHERE id = ?', [Date.now(), id]);

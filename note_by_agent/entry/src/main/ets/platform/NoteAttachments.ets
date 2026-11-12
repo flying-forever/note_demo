@@ -108,6 +108,14 @@ export async function importNoteImage(filesDir: string, uri: string): Promise<No
   }
 }
 
+export function releaseAttachmentFile(path: string): void {
+  try { fs.unlinkSync(path); } catch {}
+  const thumb: string = thumbnailPath(path);
+  if (thumb !== '') {
+    try { fs.unlinkSync(thumb); } catch {}
+  }
+}
+
 export function releaseUnusedImages(images: NoteImage[], referencedPaths: string[]): void {
   images.forEach((item: NoteImage) => {
     if (!referencedPaths.includes(item.path)) {

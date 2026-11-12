@@ -2,7 +2,8 @@
 import { Note } from '../model/Note';
 import { BodyBlock, NoteImage, documentText, copyImage } from '../model/NoteDocument';
 import { commitNote, commitNoteChecked, removeNote, updateNoteMeta } from '../repository/NoteRepository';
-import { loadStoredNote, StoredNoteRecord } from '../repository/NoteSqlRepository';
+import { loadStoredNote, StoredNoteRecord, listReferencedImagePaths, noteAttachmentPaths } from '../repository/NoteSqlRepository';
+import { releaseAttachmentFile } from '../platform/NoteAttachments';
 import { deleteDraftsForNote } from '../repository/DraftRepository';
 import { refreshDesktopCards } from '../platform/DesktopCards';
 
@@ -133,7 +134,17 @@ export async function changeNoteSkin(id: string, skinId: string): Promise<void> 
 }
 
 export async function deleteNote(id: string): Promise<void> {
+  const paths: string[] = await noteAttachmentPaths(id);
   await deleteDraftsForNote(id);
   await removeNote(id);
+  try {
+    const referenced: string[] = await listReferencedImagePaths();
+    paths.forEach((path: string) => {
+      if (!referenced.includes(path)) {
+        releaseAttachmentFile(path);
+      }
+    });
+  } catch {
+  }
   refreshDesktopCards(id).catch(() => {});
 }
