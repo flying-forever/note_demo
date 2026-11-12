@@ -26,6 +26,12 @@ export const DEMO_CATALOG: DemoEntry[] = [
     title: '原生跨片段编辑',
     description: '单个 RichEditor：跨片段选区、全选、删除及原生复制粘贴。全量加载对照。',
     route: 'pages/NativeEditorDemo'
+  },
+  {
+    id: 'web-editor',
+    title: 'Web 长文编辑对照',
+    description: '离线 CodeMirror：全文模型、视口渲染与输入试验。不接入正式数据。',
+    route: 'pages/WebEditorDemo'
   }
 ];
 

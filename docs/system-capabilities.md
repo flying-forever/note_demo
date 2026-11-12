@@ -63,6 +63,12 @@ SDK 版本信息来自本机已安装 SDK 的声明文件。运行设备的系�
 - 图片附件的跨进程孤立文件清理、录音与权限、手写、提醒通知、私密认证及保护、完整笔记持久化。
 - 每项补录最低接口版本、设备能力和权限要求、授权拒绝及系统不支持时的处理、资源与监听释放，以及实际通过验证的设备和系统版本。
 
+## 离线 Web 长文实验
+
+`pages/WebEditorDemo` 使用 ArkWeb 的 WebviewController.runJavaScript 与本地 rawfile 页面交互，按本机 API19 编译。实验 bundle 已打入 HAP，不申请网络权限、不访问正式存储；domStorageAccess 与 fileAccess 关闭，仅接收合成文字。实验仍受 TECH_DEMOS_ENABLED 控制，入口沿用技术实验室。
+
+全文模型和视口节点分别计数；加载时间为 Web 内模型创建至双动画帧回调，未覆盖桥接和冷初始化。Web 渲染可能在独立的应用 render 进程，采样需同时保留进程清单与各进程 PSS，不能把主进程数据当总成本。实际输入、图文及设备范围见[本轮实验记录](archive/2026-11-12-editor-engine-comparison.md)，不扩大为正式编辑器验收。
+
 ## 动态皮肤透明合成
 
 当前设备树叶使用Image.renderGroup(true)，整体缓存后透明合成以保留低透明度叶脉内部对比度。宽高后的animation(null)必须保留，缓存不能代替动画范围隔离。不要泛化为全部设备SVG描边或路径简写故障；详细对照过程见[皮肤排查历史](archive/2026-11-12-progress.md)。

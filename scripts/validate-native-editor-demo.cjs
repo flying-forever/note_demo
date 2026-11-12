@@ -5,7 +5,9 @@ const path = require('node:path');
 const cp = require('node:child_process');
 const assert = require('node:assert/strict');
 const hdc = process.env.HDC_PATH || 'E:/Softs/Huawei/DevEco Studio/sdk/default/openharmony/toolchains/hdc.exe';
-const output = fs.mkdtempSync(path.join(os.tmpdir(), 'note-native-editor-'));
+const outputRoot = process.env.NOTE_VERIFICATION_DIR || os.tmpdir();
+fs.mkdirSync(outputRoot, { recursive: true });
+const output = fs.mkdtempSync(path.join(outputRoot, 'note-native-editor-'));
 const results = [];
 let transientSnapshots = 0;
 function command(...args) {
@@ -100,9 +102,10 @@ try {
     const baseline = memory('baseline');
     button('加载全文');
     const measurement = status(/^测量：.*至空闲帧 .*排版 [1-9]\d* 行$/);
+    const beforeCheck = memory('before-check');
     button('全文核对');
     status(/^全文核对通过：100000 字符/);
-    const result = { mode: process.argv.includes('--single') ? '整段' : mode, paragraphs, measurement, baseline, loaded: memory('loaded'), result: 'pass' };
+    const result = { mode: process.argv.includes('--single') ? '整段' : mode, paragraphs, measurement, baseline, beforeCheck, loaded: memory('loaded'), result: 'pass' };
     results.push(result);
     console.log(JSON.stringify(result));
   } else if (process.argv.includes('--benchmark')) {
