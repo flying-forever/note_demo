@@ -97,7 +97,7 @@ struct DesktopNoteEdit {
     this.saving = true;
     clearTimeout(this.previewTimer);
     try {
-      const result = saveNoteDraft({ id: original.id, group: original.group, title: this.title,
+      const result = await saveNoteDraft({ id: original.id, group: original.group, title: this.title,
         blocks: this.blocks, images: original.images ?? [], skinId: original.skinId,
         expectedSnapshot: this.originalSnapshot });
       if (result.status !== 'saved' || !result.note) {

@@ -22,6 +22,12 @@ export const DEMO_CATALOG: DemoEntry[] = [
     route: 'pages/DatabaseDemo'
   },
   {
+    id: 'note-store',
+    title: '正式笔记库自检',
+    description: '计数、块往返、版本递增、墓碑与清理；写入一条临时笔记后删除。',
+    route: 'pages/NoteStoreDemo'
+  },
+  {
     id: 'native-editor',
     title: '原生跨片段编辑',
     description: '单个 RichEditor：跨片段选区、全选、删除及原生复制粘贴。全量加载对照。',

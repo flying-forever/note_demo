@@ -1,6 +1,5 @@
-// 初始化笔记存储与主窗口，并处理桌面卡片启动请求。
-import { initializeDesktopRepository } from '../repository/DesktopNoteRepository';
-import { syncDesktopNotes } from '../repository/NoteRepository';
+// 初始化笔记数据库与主窗口，并处理桌面卡片启动请求。
+import { initializeNoteRepository, refreshNotes } from '../repository/NoteRepository';
 import { desktopLaunchNoteId } from '../platform/NoteLaunch';
 import { AbilityConstant, ConfigurationConstant, UIAbility, Want } from '@kit.AbilityKit';
 import { hilog } from '@kit.PerformanceAnalysisKit';
@@ -10,8 +9,6 @@ const DOMAIN = 0x0000;
 
 export default class EntryAbility extends UIAbility {
   private receiveWant(want: Want): void {
-    initializeDesktopRepository(this.context.filesDir);
-    syncDesktopNotes();
     AppStorage.setOrCreate('desktopLaunchNoteId', desktopLaunchNoteId(want));
   }
 
@@ -29,10 +26,13 @@ export default class EntryAbility extends UIAbility {
     hilog.info(DOMAIN, 'testTag', '%{public}s', 'Ability onDestroy');
   }
 
-  onWindowStageCreate(windowStage: window.WindowStage): void {
-    // Main window is created, set main page for this ability
-    hilog.info(DOMAIN, 'testTag', '%{public}s', 'Ability onWindowStageCreate');
-
+  async onWindowStageCreate(windowStage: window.WindowStage): Promise<void> {
+    hilog.info(DOMAIN, 'testTag', 'Ability onWindowStageCreate');
+    try {
+      await initializeNoteRepository(this.context);
+    } catch (error) {
+      hilog.error(DOMAIN, 'testTag', 'Note repository initialization failed: %{public}s', String(error));
+    }
     windowStage.loadContent('pages/Index', (err) => {
       if (err.code) {
         hilog.error(DOMAIN, 'testTag', 'Failed to load the content. Cause: %{public}s', JSON.stringify(err));
@@ -43,18 +43,15 @@ export default class EntryAbility extends UIAbility {
   }
 
   onWindowStageDestroy(): void {
-    // Main window is destroyed, release UI related resources
     hilog.info(DOMAIN, 'testTag', '%{public}s', 'Ability onWindowStageDestroy');
   }
 
   onForeground(): void {
-    syncDesktopNotes();
-    // Ability has brought to foreground
+    refreshNotes().catch(() => {});
     hilog.info(DOMAIN, 'testTag', '%{public}s', 'Ability onForeground');
   }
 
   onBackground(): void {
-    // Ability has back to background
     hilog.info(DOMAIN, 'testTag', '%{public}s', 'Ability onBackground');
   }
 }

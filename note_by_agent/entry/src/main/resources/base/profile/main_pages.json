@@ -7,6 +7,7 @@
     "pages/TechDemos",
     "pages/LongDocumentDemo",
     "pages/DatabaseDemo",
+    "pages/NoteStoreDemo",
     "pages/NativeEditorDemo",
     "pages/WebEditorDemo"
   ]

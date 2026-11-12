@@ -4,7 +4,7 @@ import { router } from '@kit.ArkUI';
 import { TECH_DEMOS_ENABLED } from '../diagnostics/DemoCatalog';
 import { GROUP_ALL, GROUP_UNFILED, NOTE_GROUPS, Note, noteCardTitle } from '../model/Note';
 import { NoteEditorParams } from '../services/NoteService';
-import { listNotes, syncDesktopNotes, findNote } from '../repository/NoteRepository';
+import { listNotes, refreshNotes, findNote } from '../repository/NoteRepository';
 
 const LARGE_TITLE_FONT_SIZE: number = 44;
 const HEADER_SLOT_HEIGHT: number = 56;
@@ -30,9 +30,10 @@ struct Index {
   private scroller: Scroller = new Scroller();
 
   onPageShow(): void {
-    syncDesktopNotes();
-    this.allNotes = listNotes();
-    this.openDesktopLaunch();
+    refreshNotes().then(() => {
+      this.allNotes = listNotes();
+      this.openDesktopLaunch();
+    }).catch(() => {});
   }
 
   private openDesktopLaunch(): void {
@@ -41,7 +42,6 @@ struct Index {
       return;
     }
     this.desktopLaunchNoteId = '';
-    syncDesktopNotes();
     const note = findNote(id);
     if (!note) {
       this.getUIContext().getPromptAction().showToast({ message: '笔记已删除或不可用' });

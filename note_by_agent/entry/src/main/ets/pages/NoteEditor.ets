@@ -2,14 +2,13 @@
 import { NoteSkinPickerView } from '../components/NoteSkinPickerView';
 import { NoteCaptionEditorView } from '../components/NoteCaptionEditorView';
 import { DynamicSkinView } from '../components/DynamicSkinView';
-import { readDesktopNote, readDesktopRecord } from '../repository/DesktopNoteRepository';
 import { saveNoteDraft, snapshotNote, isBlankNote } from '../services/NoteService';
 import { BodyBlock, NoteImage, textBlock, documentText, copyImage } from '../model/NoteDocument';
 import { photoAccessHelper } from '@kit.MediaLibraryKit';
 
 import { GROUP_ALL, GROUP_UNFILED, NOTE_GROUPS, Note } from '../model/Note';
 import { changeNoteSkin, deleteNote, moveNote, NoteEditorParams } from '../services/NoteService';
-import { findNote, listNotes, syncDesktopNotes } from '../repository/NoteRepository';
+import { findNote, listNotes, refreshNotes } from '../repository/NoteRepository';
 import { findSkin, isDynamicSkin, NoteSkin } from '../model/NoteSkin';
 import { NoteEditorSession } from '../viewmodel/NoteEditorSession';
 import { noteTextCaret } from '../platform/NoteTextHitTest';
@@ -88,10 +87,10 @@ struct NoteEditor {
   private focusTarget: string = BODY_INPUT_ID;
   private params: NoteEditorParams = { id: '', group: '' };
   private original?: Note;
+  private leaving: boolean = false;
 
   aboutToAppear(): void {
     this.sessionGeneration++;
-    syncDesktopNotes();
     this.params = this.getUIContext().getRouter().getParams() as NoteEditorParams;
     this.original = findNote(this.params.id);
     this.session.load(this.original);
@@ -100,15 +99,15 @@ struct NoteEditor {
     this.skinId = this.original?.skinId ?? 'white';
   }
 
-  onPageShow(): void {
+  async onPageShow(): Promise<void> {
     this.pageVisible = true;
+    await refreshNotes();
     const requested = this.getUIContext().getRouter().getParams() as NoteEditorParams;
     if (requested && requested.id !== this.params.id) {
-      if (!this.saveBeforeLeaving()) { return; }
+      if (!(await this.saveBeforeLeaving())) { return; }
       this.sessionGeneration++;
       releaseUnusedImages(this.session.images, listNotes());
       this.params = requested;
-      syncDesktopNotes();
       this.original = findNote(requested.id);
       this.session.load(this.original);
       this.skinId = this.original?.skinId ?? 'white';
@@ -123,12 +122,11 @@ struct NoteEditor {
       this.folderProgress = 0;
       this.bodyScroller.scrollTo({ xOffset: 0, yOffset: 0 });
     }
-    syncDesktopNotes();
-    if (this.original && readDesktopRecord(this.params.id)?.deleted) {
+    if (this.original && !findNote(this.params.id)) {
       this.resolveDeletedNote();
       return;
     }
-    const latest = readDesktopNote(this.params.id);
+    const latest = findNote(this.params.id);
     if (latest && this.original && JSON.stringify(latest) !== JSON.stringify(this.original)) {
       this.refreshExternalNote(latest);
     }
@@ -184,7 +182,7 @@ struct NoteEditor {
       });
       if (this.disposed || generation !== this.sessionGeneration) { return; }
       if (choice.index === 0) {
-        const result = saveNoteDraft({ id: '', group: this.selectedGroup, title: this.session.title,
+        const result = await saveNoteDraft({ id: '', group: this.selectedGroup, title: this.session.title,
           blocks: this.session.blocks, images: this.session.referencedImages(), skinId: this.skinId,
           expectedSnapshot: '' });
         if (result.status === 'saved' && result.note) {
@@ -208,13 +206,13 @@ struct NoteEditor {
     }
   }
 
-  private sendToDesktop(): void {
+  private async sendToDesktop(): Promise<void> {
     this.menuVisible = false;
     if (!this.session.title.trim() && !this.session.content.trim() && !this.hasImages()) {
       this.getUIContext().getPromptAction().showToast({ message: '请填写内容后再发送到桌面' });
       return;
     }
-    if (this.commitDraft(true)) {
+    if (await this.commitDraft(true)) {
       this.getUIContext().getRouter().pushUrl({ url: 'pages/NoteDesktop', params: this.params });
     }
   }
@@ -534,7 +532,7 @@ struct NoteEditor {
     }
   }
 
-  private saveBeforeLeaving(): boolean {
+  private async saveBeforeLeaving(): Promise<boolean> {
     if (!this.session.isDirty()) { return true; }
     if (isBlankNote(this.session.title, this.session.blocks)) {
       if (this.original) {
@@ -546,8 +544,8 @@ struct NoteEditor {
     return this.commitDraft(false);
   }
 
-  private commitDraft(persistToDesktop: boolean): boolean {
-    const result = saveNoteDraft({ id: this.params.id, group: this.selectedGroup,
+  private async commitDraft(persistToDesktop: boolean): Promise<boolean> {
+    const result = await saveNoteDraft({ id: this.params.id, group: this.selectedGroup,
       title: this.session.title, blocks: this.session.blocks, images: this.session.referencedImages(),
       skinId: this.skinId, expectedSnapshot: snapshotNote(this.original), persistToDesktop: persistToDesktop });
     if (result.status === 'saved' && result.note) {
@@ -590,7 +588,22 @@ struct NoteEditor {
       this.menuVisible = false;
       return true;
     }
-    return !this.saveBeforeLeaving();
+    this.requestLeave();
+    return true;
+  }
+
+  private async requestLeave(): Promise<void> {
+    if (this.leaving) {
+      return;
+    }
+    this.leaving = true;
+    try {
+      if (await this.saveBeforeLeaving()) {
+        this.getUIContext().getRouter().back();
+      }
+    } finally {
+      this.leaving = false;
+    }
   }
 
   private pendingFeature(name: string): void {
@@ -617,9 +630,9 @@ struct NoteEditor {
     return [0, 0, 0, 0, red, 0, 0, 0, 0, green, 0, 0, 0, 0, blue, 0, 0, 0, 1, 0];
   }
 
-  private selectSkin(id: string): void {
+  private async selectSkin(id: string): Promise<void> {
     try {
-      changeNoteSkin(this.params.id, id);
+      await changeNoteSkin(this.params.id, id);
       this.skinId = id;
       if (this.original) { this.original.skinId = id; }
     } catch {
@@ -627,10 +640,10 @@ struct NoteEditor {
     }
   }
 
-  private selectFolder(label: string): void {
+  private async selectFolder(label: string): Promise<void> {
     const group: string = label === UNFILED ? '' : label;
     try {
-      moveNote(this.params.id, group);
+      await moveNote(this.params.id, group);
       this.selectedGroup = group;
       this.params.group = group;
       if (this.original) { this.original.group = group; }
@@ -654,7 +667,7 @@ struct NoteEditor {
         ]
       });
       if (result.index === 1) {
-        deleteNote(this.params.id);
+        await deleteNote(this.params.id);
         this.getUIContext().getRouter().back();
       }
     } catch {
@@ -695,9 +708,7 @@ struct NoteEditor {
         .backgroundColor(Color.Transparent)
         .fontColor(this.skin().text)
         .onClick(() => {
-          if (this.saveBeforeLeaving()) {
-            this.getUIContext().getRouter().back();
-          }
+          this.requestLeave();
         })
       Blank()
       if (this.editing) {

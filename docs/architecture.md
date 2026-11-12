@@ -6,12 +6,14 @@
 
 | 层/文件 | 实际职责与状态 |
 | --- | --- |
-| pages/Index | 当前tab、分组、搜索/标题进度、列表快照与滚动；显示前同步桌面记录 |
+| pages/Index | 当前tab、分组、搜索/标题进度、列表快照与滚动；显示前从数据库刷新缓存 |
 | pages/NoteEditor | 路由参数、原笔记快照、皮肤/分组、编辑模式、焦点、滚动、控制器、浮层、会话代号及异步生命周期 |
 | viewmodel/NoteEditorSession | 主编辑唯一标题、blocks、images、派生content、历史、活动块/光标及脏状态；不负责落盘 |
 | model/NoteHistory | 标题和序列化blocks历史、时间合并与分组（预输入过滤由会话调用方负责）；图片描述/尺寸不进入历史 |
-| services/NoteService | 主编辑/半模态共同保存、空白检查、ID/时间、图片引用筛选、快照冲突检查、移动/皮肤/删除及卡片刷新编排 |
-| repository/NoteRepository | 模块级进程内已提交notes，初始假数据；与桌面JSON合并、写入和排序 |
+| services/NoteService | 主编辑/半模态共同保存、空白检查、ID/时间、图片引用筛选、快照冲突检查、移动/皮肤/删除及卡片刷新编排；保存为异步 |
+| repository/NoteRepository | 模块级已提交笔记缓存；初始化从 notes.db 加载，写入委托 NoteSqlRepository，并维护桌面 JSON 投影 |
+| repository/NoteDatabase | notes.db 打开、schema v2 建表与 v1→v2 升级、事务边界；不承载业务规则 |
+| repository/NoteSqlRepository | 笔记、正文块、附件、位置与设置的 CRUD，块↔纯文本转换，JSON 迁移与样例播种 |
 | repository/DesktopNoteRepository | filesDir/desktop-notes下版本化记录、墓碑及form关联；不依赖FormKit |
 | platform | NoteAttachments管私有附件，NoteShare管系统分享，DesktopCards管配色/刷新，NoteLaunch管启动解析，NoteTextHitTest管原生排版命中 |
 | components | 展示、皮肤背景/选择和图片描述；动态组件持有各自动画生命周期 |
@@ -22,22 +24,22 @@
 
 ## 正式读写路径
 
-首页onPageShow → syncDesktopNotes → JSON覆盖同ID内存笔记/排除墓碑 → listNotes → 筛选和双列展示。普通内存笔记与选择性JSON共存，没有统一数据库。
+首页onPageShow → refreshNotes 从 notes.db 重载缓存 → listNotes → 筛选和双列展示。缓存是同步读模型，数据库是权威存储；旧桌面 JSON 仅保留为卡片投影和回退。
 
-打开主编辑 → 路由参数查笔记 → session.load复制草稿并初始化历史 → 输入更新session → 离页saveNoteDraft。业务层读取最新桌面记录优先于内存，比对固定字段顺序snapshotNote，返回saved/empty/conflict/deleted/storageError。仓库先持久写入（适用时）再改内存；随后平台刷新卡片，卡片刷新失败不回滚已保存笔记。正文保存前置，元数据更新保持顺序。已有笔记移动和换肤立即提交元数据，新草稿首次保存携带。
+打开主编辑 → 路由参数查缓存 → session.load复制草稿并初始化历史 → 输入更新session → 离页saveNoteDraft（异步）。业务层从数据库读取最新笔记，比对固定字段顺序snapshotNote，返回saved/empty/conflict/deleted/storageError。事务内更新notes与blocks，提交后更新缓存；随后平台刷新卡片，卡片刷新失败不回滚已保存笔记。正文保存前置，元数据更新保持顺序且不改变首页排序。已有笔记移动和换肤立即提交元数据，新草稿首次保存携带。
 
-进入桌面预览 → persistToDesktop保存完整Note → AddFormMenuItem → form关联。每个formId为string，允许多卡对应一笔记。移除只删关联；删除已持久笔记写墓碑并刷新删除状态。UIAbility和扩展以文件共享数据，不能靠模块单例跨进程通信。
+进入桌面预览 → persistToDesktop保存完整Note到数据库，并写桌面JSON投影供卡片同步读取 → AddFormMenuItem → form关联。每个formId为string，允许多卡对应一笔记。移除只删关联；删除已持久笔记写数据库墓碑和JSON墓碑并刷新删除状态。UIAbility和扩展共享数据库文件与私有目录，不能靠模块单例跨进程通信。
 
 卡片点击 → NoteLaunch解析Want（含序列化params/关联回退）→ AppStorage目标ID → 首页就绪后RouterMode.Single导航 → desktopEditorRequest显式通知已复用编辑页。切目标先保存旧草稿，过期异步回调按会话代号丢弃。
 
-半模态扩展每会话创建LocalStorage，经loadContent注入；页面从shared LocalStorage取session/formId，直接读JSON并持独立草稿 → 同一saveNoteDraft → 刷新预览 → terminateSelf。取消和销毁不隐式保存，成功只结束应用编辑区，不关闭宿主预览。
+半模态扩展每会话创建LocalStorage，经loadContent注入；页面从shared LocalStorage取session/formId，读桌面JSON投影持独立草稿 → 同一saveNoteDraft写数据库与投影 → 刷新预览 → terminateSelf。取消和销毁不隐式保存，成功只结束应用编辑区，不关闭宿主预览。
 
 图片URI → 私有note-images副本 → session图片引用/正文块 → 保存筛选仍引用的附件。离页按内存笔记引用清理当前附件，不修改相册源图。分享直接读取当前草稿的纯文字，不触发保存。
 
 ## 可靠性和已知局限
 
-- JSON使用独立临时文件、fsync、rename，失败保留旧内存；快照检查与唯一临时名都不是跨进程原子事务，仍有比较后竞争窗口。
-- 只有发送预览后的笔记持久化，其他内容重启丢失；无正式自动草稿、关系库迁移、损坏恢复或跨进程孤立附件回收。
+- 数据库写入使用事务，失败回滚并保留原有笔记；快照检查不是跨进程原子事务，仍有比较后竞争窗口，`revision` 条件更新尚未接入。
+- 卡片和半模态读取仍走桌面 JSON 投影，投影由保存流程维护，可随时从数据库重建；迁移前数据保留为回退。
 - 当前正文Text/TextArea块完整加载，不是10万字按需编辑器；实验数据库和RichEditor页均隔离于正式数据。
 - 当前正文视口恢复属于页内切换，不等于重开笔记恢复编辑位置；主编辑历史也不跨页保存。
 - SDK19宿主完成无法拦截、宿主标题无法隐藏；明确保存和常驻提示是当前产品行为。

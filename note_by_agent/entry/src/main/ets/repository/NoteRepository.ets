@@ -1,18 +1,54 @@
-// 管理内存笔记列表，并同步和选择性持久化桌面笔记。
+// 维护笔记内存缓存，并把写入委托给关系型存储与桌面卡片投影。
+import { common } from '@kit.AbilityKit';
 import { FAKE_NOTES, Note } from '../model/Note';
-import { listDesktopRecords, readDesktopRecord, persistDesktopNote, deleteDesktopNote } from './DesktopNoteRepository';
+import { initializeDesktopRepository, listDesktopRecords, persistDesktopNote, deleteDesktopNote,
+  readDesktopRecord } from './DesktopNoteRepository';
+import { openNoteDatabase } from './NoteDatabase';
+import { loadAllNotes, saveNoteRecord, deleteNoteRecord, updateNoteRecord, migrateDesktopRecords,
+  seedSampleNotes, getSetting, setSetting, setNoteFilesDir } from './NoteSqlRepository';
 
-let notes: Note[] = FAKE_NOTES.slice();
+const SEED_KEY: string = 'bootstrap.samples.v1';
+const SEED_VALUE: string = 'seeded';
+const MIGRATION_KEY: string = 'migration.desktop_json.v1';
+const MIGRATION_COUNT: string = 'migration.desktop_json.v1.count';
+const MIGRATION_ERROR: string = 'migration.desktop_json.v1.error';
 
-export function syncDesktopNotes(): void {
-  const records = listDesktopRecords();
-  const restored: Note[] = [];
-  records.forEach((record) => {
-    if (!record.deleted && record.note) {
-      restored.push(record.note);
+let notes: Note[] = [];
+let ready: boolean = false;
+
+export function noteRepositoryReady(): boolean {
+  return ready;
+}
+
+export async function initializeNoteRepository(context: common.Context): Promise<void> {
+  initializeDesktopRepository(context.filesDir);
+  setNoteFilesDir(context.filesDir);
+  await openNoteDatabase(context);
+  if ((await getSetting(MIGRATION_KEY)) !== 'done') {
+    await setSetting(MIGRATION_KEY, 'running');
+    try {
+      const migrated: number = await migrateDesktopRecords(listDesktopRecords());
+      await setSetting(MIGRATION_COUNT, String(migrated));
+      await setSetting(MIGRATION_KEY, 'done');
+    } catch (error) {
+      await setSetting(MIGRATION_ERROR, String(error));
+      await setSetting(MIGRATION_KEY, 'failed');
+      throw new Error(String(error));
     }
-  });
-  notes = [...restored, ...notes.filter((note: Note) => !records.some((record) => record.id === note.id))];
+  }
+  if ((await getSetting(SEED_KEY)) !== SEED_VALUE) {
+    await seedSampleNotes(FAKE_NOTES);
+    await setSetting(SEED_KEY, SEED_VALUE);
+  }
+  notes = await loadAllNotes();
+  ready = true;
+}
+
+export async function refreshNotes(): Promise<void> {
+  if (!ready) {
+    return;
+  }
+  notes = await loadAllNotes();
 }
 
 export function listNotes(): Note[] {
@@ -23,15 +59,36 @@ export function findNote(id: string): Note | undefined {
   return notes.find((note: Note) => note.id === id);
 }
 
-export function commitNote(note: Note, persistToDesktop: boolean = false, reorder: boolean = true): void {
-  if (persistToDesktop || readDesktopRecord(note.id)) {
-    persistDesktopNote(note);
+export async function commitNote(note: Note, persistToDesktop: boolean = false,
+  reorder: boolean = true): Promise<Note> {
+  const saved: Note = await saveNoteRecord(note);
+  if (persistToDesktop || readDesktopRecord(saved.id)) {
+    persistDesktopNote(saved);
   }
-  notes = reorder ? [note, ...notes.filter((item: Note) => item.id !== note.id)] :
-    notes.map((item: Note) => item.id === note.id ? note : item);
+  notes = reorder ? [saved, ...notes.filter((item: Note) => item.id !== saved.id)] :
+    notes.map((item: Note) => item.id === saved.id ? saved : item);
+  return saved;
 }
 
-export function removeNote(id: string): void {
+export async function updateNoteMeta(id: string, group?: string, skinId?: string): Promise<Note | undefined> {
+  await updateNoteRecord(id, group, skinId);
+  let updated: Note | undefined = undefined;
+  notes = notes.map((item: Note) => {
+    if (item.id !== id) {
+      return item;
+    }
+    updated = { id: item.id, title: item.title, content: item.content, timeLabel: item.timeLabel,
+      group: group ?? item.group, skinId: skinId ?? item.skinId, blocks: item.blocks, images: item.images };
+    return updated;
+  });
+  if (updated && readDesktopRecord(id)) {
+    persistDesktopNote(updated);
+  }
+  return updated;
+}
+
+export async function removeNote(id: string): Promise<void> {
+  await deleteNoteRecord(id);
   deleteDesktopNote(id);
   notes = notes.filter((note: Note) => note.id !== id);
 }
