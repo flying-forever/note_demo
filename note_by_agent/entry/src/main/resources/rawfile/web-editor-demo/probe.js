@@ -1,10 +1,11 @@
 // 使用完整文档模型与视口渲染，暴露仅操作合成实验数据的测量接口。
-import { EditorState, EditorSelection } from '@codemirror/state';
+import { EditorState, EditorSelection, Compartment } from '@codemirror/state';
 import { EditorView, keymap } from '@codemirror/view';
 import { defaultKeymap, history, historyKeymap, undo, redo } from '@codemirror/commands';
 import { PerformanceProbe } from './performance';
 
 const statusElement = document.getElementById('status');
+const editableCompartment = new Compartment();
 let original = '';
 let loaded = false;
 let changes = 0;
@@ -16,9 +17,32 @@ let performanceProbe;
 const extensions = [EditorView.lineWrapping, history(), keymap.of([...defaultKeymap, ...historyKeymap]),
   EditorView.updateListener.of(update => {
     if (update.docChanged) { changes++; performanceProbe?.changed(update); }
-  })];
+  }), editableCompartment.of(EditorView.editable.of(true))];
 const view = new EditorView({ state: EditorState.create({ extensions }), parent: document.getElementById('editor') });
 performanceProbe = new PerformanceProbe(view);
+let editableState = true;
+let pressAt = 0;
+let pressX = 0;
+let pressY = 0;
+view.contentDOM.addEventListener('pointerdown', event => {
+  if (editableState) return;
+  pressAt = performance.now();
+  pressX = event.clientX;
+  pressY = event.clientY;
+});
+view.contentDOM.addEventListener('pointerup', event => {
+  const quick = performance.now() - pressAt < 400;
+  const still = Math.hypot(event.clientX - pressX, event.clientY - pressY) < 8;
+  pressAt = 0;
+  if (editableState || !quick || !still) return;
+  const position = view.posAtCoords({ x: event.clientX, y: event.clientY });
+  if (position == null) return;
+  editableState = true;
+  view.dispatch({ effects: editableCompartment.reconfigure(EditorView.editable.of(true)), selection: { anchor: position } });
+  view.focus();
+  status = 'tap entered edit mode at tapped position';
+  result();
+});
 function result(extra = {}) {
   const selection = view.state.selection.main;
   const data = { ready: true, loaded, length: view.state.doc.length, lines: view.state.doc.lines,
@@ -63,6 +87,13 @@ window.noteProbe = {
     return result();
   },
   clearFocus() { view.contentDOM.blur(); return result(); },
+  setEditable(editable) {
+    editableState = !!editable;
+    view.dispatch({ effects: editableCompartment.reconfigure(EditorView.editable.of(editableState)) });
+    if (!editableState) view.contentDOM.blur();
+    status = editableState ? 'editable; tap text to focus and input' : 'read-only; finger selection should not raise keyboard';
+    return result();
+  },
   inputCheck(marker) {
     ok = loaded && view.state.doc.toString() === original + marker;
     status = 'checking actual input against original plus supplied marker';

@@ -16032,6 +16032,7 @@
 
   // note_by_agent/build/verification/web-editor-build/probe.js
   var statusElement = document.getElementById("status");
+  var editableCompartment = new Compartment();
   var original = "";
   var loaded = false;
   var changes = 0;
@@ -16049,10 +16050,34 @@
         changes++;
         performanceProbe?.changed(update);
       }
-    })
+    }),
+    editableCompartment.of(EditorView.editable.of(true))
   ];
   var view = new EditorView({ state: EditorState.create({ extensions }), parent: document.getElementById("editor") });
   performanceProbe = new PerformanceProbe(view);
+  var editableState = true;
+  var pressAt = 0;
+  var pressX = 0;
+  var pressY = 0;
+  view.contentDOM.addEventListener("pointerdown", (event) => {
+    if (editableState) return;
+    pressAt = performance.now();
+    pressX = event.clientX;
+    pressY = event.clientY;
+  });
+  view.contentDOM.addEventListener("pointerup", (event) => {
+    const quick = performance.now() - pressAt < 400;
+    const still = Math.hypot(event.clientX - pressX, event.clientY - pressY) < 8;
+    pressAt = 0;
+    if (editableState || !quick || !still) return;
+    const position = view.posAtCoords({ x: event.clientX, y: event.clientY });
+    if (position == null) return;
+    editableState = true;
+    view.dispatch({ effects: editableCompartment.reconfigure(EditorView.editable.of(true)), selection: { anchor: position } });
+    view.focus();
+    status = "tap entered edit mode at tapped position";
+    result();
+  });
   function result(extra = {}) {
     const selection = view.state.selection.main;
     const data = {
@@ -16121,6 +16146,13 @@
     },
     clearFocus() {
       view.contentDOM.blur();
+      return result();
+    },
+    setEditable(editable2) {
+      editableState = !!editable2;
+      view.dispatch({ effects: editableCompartment.reconfigure(EditorView.editable.of(editableState)) });
+      if (!editableState) view.contentDOM.blur();
+      status = editableState ? "editable; tap text to focus and input" : "read-only; finger selection should not raise keyboard";
       return result();
     },
     inputCheck(marker) {
