@@ -2,6 +2,7 @@
 import { initializeDesktopRepository } from '../repository/DesktopNoteRepository';
 import { syncDesktopNotes } from '../repository/NoteRepository';
 import { desktopLaunchNoteId } from '../platform/NoteLaunch';
+import { SystemBarInitResult, SystemBars } from '../platform/SystemBars';
 import { AbilityConstant, ConfigurationConstant, UIAbility, Want } from '@kit.AbilityKit';
 import { hilog } from '@kit.PerformanceAnalysisKit';
 import { window } from '@kit.ArkUI';
@@ -29,10 +30,7 @@ export default class EntryAbility extends UIAbility {
     hilog.info(DOMAIN, 'testTag', '%{public}s', 'Ability onDestroy');
   }
 
-  onWindowStageCreate(windowStage: window.WindowStage): void {
-    // Main window is created, set main page for this ability
-    hilog.info(DOMAIN, 'testTag', '%{public}s', 'Ability onWindowStageCreate');
-
+  private loadContent(windowStage: window.WindowStage): void {
     windowStage.loadContent('pages/Index', (err) => {
       if (err.code) {
         hilog.error(DOMAIN, 'testTag', 'Failed to load the content. Cause: %{public}s', JSON.stringify(err));
@@ -42,8 +40,28 @@ export default class EntryAbility extends UIAbility {
     });
   }
 
+  onWindowStageCreate(windowStage: window.WindowStage): void {
+    // Main window is created, set main page for this ability
+    hilog.info(DOMAIN, 'testTag', '%{public}s', 'Ability onWindowStageCreate');
+    SystemBars.initialize(windowStage)
+      .then((result: SystemBarInitResult) => {
+        if (result === SystemBarInitResult.CANCELLED) {
+          return;
+        }
+        if (result === SystemBarInitResult.FALLBACK) {
+          hilog.warn(DOMAIN, 'testTag', '%{public}s', 'System bars not ready; loading fallback layout.');
+        }
+        this.loadContent(windowStage);
+      })
+      .catch((error: Error) => {
+        hilog.error(DOMAIN, 'testTag', 'Failed to initialize system bars. Cause: %{public}s', JSON.stringify(error));
+        this.loadContent(windowStage);
+      });
+  }
+
   onWindowStageDestroy(): void {
     // Main window is destroyed, release UI related resources
+    SystemBars.release();
     hilog.info(DOMAIN, 'testTag', '%{public}s', 'Ability onWindowStageDestroy');
   }
 

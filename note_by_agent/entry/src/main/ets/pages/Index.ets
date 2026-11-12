@@ -8,6 +8,7 @@ import { GROUP_ALL, GROUP_UNFILED, NOTE_GROUPS, Note, noteCardTitle } from '../m
 import { NoteEditorParams } from '../services/NoteService';
 import { listNotes, syncDesktopNotes, findNote } from '../repository/NoteRepository';
 import { VIEW_LIST, VIEW_WATERFALL, loadViewMode, saveViewMode } from '../repository/NoteSettings';
+import { SystemBars } from '../platform/SystemBars';
 
 const LARGE_TITLE_FONT_SIZE: number = 44;
 const HEADER_SLOT_HEIGHT: number = 56;
@@ -28,6 +29,8 @@ const SETTINGS_MENU_ICON_SIZE: number = 20;
 @Component
 struct Index {
   @StorageLink('desktopLaunchNoteId') @Watch('openDesktopLaunch') private desktopLaunchNoteId: string = '';
+  @StorageProp('systemBarTopVp') private topInset: number = 0;
+  @StorageProp('systemBarBottomVp') private bottomInset: number = 0;
   @State currentTab: number = 0;
   @State selectedGroup: string = GROUP_ALL;
   @State searchProgress: number = 0;
@@ -45,6 +48,7 @@ struct Index {
 
   aboutToAppear(): void {
     this.viewMode = loadViewMode(this.getUIContext().getHostContext() as common.UIAbilityContext);
+    SystemBars.applyForBackground('#F2F2F2');
   }
 
   aboutToDisappear(): void {
@@ -54,6 +58,8 @@ struct Index {
   onPageShow(): void {
     syncDesktopNotes();
     this.allNotes = listNotes();
+    SystemBars.refreshInsets();
+    SystemBars.applyForBackground('#F2F2F2');
     this.openDesktopLaunch();
   }
 
@@ -534,7 +540,7 @@ struct Index {
     .padding(SETTINGS_MENU_PADDING)
     .backgroundColor($r('app.color.card_bg'))
     .borderRadius(SETTINGS_MENU_CORNER)
-    .margin({ top: SETTINGS_MENU_TOP, right: 16 })
+    .margin({ top: SETTINGS_MENU_TOP + this.topInset, right: 16 })
     .shadow({ radius: 12, color: '#33000000', offsetX: 0, offsetY: 4 })
   }
 
@@ -575,6 +581,7 @@ struct Index {
       }
       .width('100%')
       .height('100%')
+      .padding({ top: this.topInset, bottom: this.bottomInset })
 
       Button({ type: ButtonType.Circle }) {
         Image($r('app.media.ic_add'))
@@ -585,7 +592,7 @@ struct Index {
       .height(52)
       .backgroundColor($r('app.color.accent'))
       .shadow({ radius: 10, color: '#33000000', offsetX: 0, offsetY: 4 })
-      .margin({ right: 20, bottom: 36 })
+      .margin({ right: 20, bottom: 36 + this.bottomInset })
       .onClick(() => {
         if (this.currentTab === 0) {
           this.openEditor('');

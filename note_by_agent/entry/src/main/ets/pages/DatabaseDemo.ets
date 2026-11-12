@@ -2,14 +2,21 @@
 import { common } from '@kit.AbilityKit';
 import { DemoStyle, TECH_DEMOS_ENABLED } from '../diagnostics/DemoCatalog';
 import { DatabaseProbeResult, runDatabaseProbe } from '../diagnostics/DatabaseProbe';
+import { SystemBars } from '../platform/SystemBars';
 
 @Entry
 @Component
 struct DatabaseDemo {
+  @StorageProp('systemBarTopVp') private topInset: number = 0;
+  @StorageProp('systemBarBottomVp') private bottomInset: number = 0;
   @State private running: boolean = false;
   @State private lines: string[] = [];
   @State private status: string = '未运行';
   private active: boolean = true;
+
+  aboutToAppear(): void {
+    SystemBars.applyForBackground('#FFFFFF');
+  }
 
   aboutToDisappear(): void {
     this.active = false;
@@ -73,6 +80,9 @@ struct DatabaseDemo {
           }
         }, (line: string) => line)
       }.layoutWeight(1).width('100%')
-    }.padding(DemoStyle.padding).width('100%').height('100%')
+    }
+    .padding({ left: DemoStyle.padding, right: DemoStyle.padding,
+      top: DemoStyle.padding + this.topInset, bottom: DemoStyle.padding + this.bottomInset })
+    .width('100%').height('100%').backgroundColor($r('app.color.card_bg'))
   }
 }

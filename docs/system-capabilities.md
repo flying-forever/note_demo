@@ -19,6 +19,7 @@
 | 输入与键盘收起 | ArkUI TextInput、TextArea 的 onEditChange，FocusController 的 requestFocus、clearFocus。具体成员版本要求升级时对照本地 SDK 声明核验。 | pages/NoteEditor.ets 的 inputEditingChanged、focusInput | 输入框结束编辑后延迟判断是否转移到另一输入区，避免焦点切换误退浏览态。键盘未弹出时可通过勾选结束编辑。 | 当前设备浮动键盘收起和标题/正文切换已验证，实体键盘及其他输入法尚未验证。 |
 | 删除确认与提示 | ArkUI UIContext.getPromptAction 的 showDialog、showToast。 | pages/NoteEditor.ets | 删除确认取消或对话框关闭时保留草稿，确认后通过NoteService执行删除；已持久笔记先写墓碑。 | 当前设备已验证取消和确认删除。 |
 | 首页视图设置 | ArkData Preferences：getPreferencesSync/getSync 读取，getPreferences/put/flush 写入；Stage 模型，本地 API19 声明可用。 | repository/NoteSettings.ets（pages/Index调用） | 读取缺失或异常回退瀑布；写入异常提示，本次运行选择仍生效；写入按顺序串行，仅保存 view_mode，不进入笔记数据。 | 当前设备验收菜单切换、名称更新、两种视图重启保留、快速连续切换、设置页跳转与返回；空列表、其他设备与视觉主观参数未验。详见[设置菜单与视图验收](archive/2026-11-12-settings-view-acceptance.md)。 |
+| 系统栏沉浸 | window.Window 的 setWindowLayoutFullScreen、getWindowAvoidArea（TYPE_SYSTEM/TYPE_CUTOUT/TYPE_NAVIGATION_INDICATOR）、setWindowSystemBarProperties；densityPixels 将 px 换算 vp；Stage 模型，本地 API19 声明可用。 | platform/SystemBars.ets（EntryAbility 初始化，各主窗口页面按背景调用） | 全屏失败回退普通布局；避让区读取失败先尝试退出全屏并清零缓存，回退失败则保留窗口引用，等页面显示时重试读取；系统栏属性或监听失败只记录日志；半模态扩展不调用主窗口系统栏。 | DMG-W00（HarmonyOS 6.1.0.139）已验收透明系统栏呈现、深浅皮肤图标、首页/设置/桌面/编辑/实验页让位、浮动键盘及横竖屏；三键导航、折叠、其他设备、全宽/其他输入法和故障注入未验。navigationBarColor/navigationBarContentColor 主要针对三键导航，手势指示条颜色由系统管理，不能据此宣称已控制，见[验收报告](archive/2026-11-13-system-bars-acceptance.md)。 |
 
 SDK 版本信息来自本机已安装 SDK 的声明文件。运行设备的系统版本、输入法版本和设备型号尚未形成完整测试矩阵，后续适配时补录，设备序列号不作为兼容性标识。
 
@@ -56,6 +57,7 @@ SDK 版本信息来自本机已安装 SDK 的声明文件。运行设备的系�
 - 文件系统调用的幂等性要依据实际 API，不能照搬其他平台的语义。附件目录创建前检查是否存在；同时覆盖首次、重复调用和进程重启后调用。
 - 构建和数据模型检查不能覆盖 UI 节点复用、焦点及输入法交互。改动编辑器后，真机至少验证连续输入/删除、结构变更后继续输入、切换输入区、撤销重做后输入、离页重开和重启后操作。可用 `uitest uiInput` 注入操作，再用 `dumpLayout` 检查文字与 focused 状态；操作之间确认界面已切换，不把动画期间未命中的点击误判为功能故障。命令注入文本不能替代真实输入法的中文预输入验收。
 - 窗口的 keyboardDidShow、keyboardDidHide 在当前浮动键盘场景下未达到预期，最终使用输入框编辑状态回调。
+- 沉浸式系统栏不能写死状态栏高度：全屏后读取 TYPE_SYSTEM、TYPE_CUTOUT 和 TYPE_NAVIGATION_INDICATOR 的避让区，按 densityPixels 换算 vp 后写入 AppStorage；页面只负责让位，系统栏样式由 platform/SystemBars 统一设置。全屏失败必须回退普通布局，避免全屏未生效却叠加安全区。
 - InputMethodController 的 sendKeyboardStatus 监听要求输入法客户端已 attach，提前注册会报 client detached。当前实现已移除该路径。
 - SVG 的 fillColor 未能完整替换描边颜色，深色皮肤使用 colorFilter 为图标整体着色。
 

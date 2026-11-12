@@ -6,6 +6,7 @@ import { DesktopNoteView } from '../components/DesktopNoteView';
 import { NoteEditorParams } from '../services/NoteService';
 import { readDesktopNote, bindDesktopForm } from '../repository/DesktopNoteRepository';
 import { desktopCardData, DesktopCardData, refreshDesktopForm } from '../platform/DesktopCards';
+import { SystemBars } from '../platform/SystemBars';
 
 const PREVIEW_ID: string = 'note-desktop-preview';
 const PREVIEW_SIZE: number = 180;
@@ -14,6 +15,8 @@ const PAGE_PADDING: number = 24;
 @Entry
 @Component
 struct NoteDesktop {
+  @StorageProp('systemBarTopVp') private topInset: number = 0;
+  @StorageProp('systemBarBottomVp') private bottomInset: number = 0;
   @State private data: DesktopCardData = desktopCardData();
   private noteId: string = '';
 
@@ -21,6 +24,12 @@ struct NoteDesktop {
     const params = this.getUIContext().getRouter().getParams() as NoteEditorParams;
     this.noteId = params.id;
     this.data = desktopCardData(readDesktopNote(this.noteId));
+    SystemBars.applyForBackground('#F2F2F2');
+  }
+
+  onPageShow(): void {
+    SystemBars.refreshInsets();
+    SystemBars.applyForBackground('#F2F2F2');
   }
 
   build() {
@@ -60,6 +69,9 @@ struct NoteDesktop {
         })
       }
       Blank()
-    }.padding(PAGE_PADDING).width('100%').height('100%').backgroundColor($r('app.color.page_bg'))
+    }
+    .padding({ left: PAGE_PADDING, right: PAGE_PADDING, top: PAGE_PADDING + this.topInset,
+      bottom: PAGE_PADDING + this.bottomInset })
+    .width('100%').height('100%').backgroundColor($r('app.color.page_bg'))
   }
 }
