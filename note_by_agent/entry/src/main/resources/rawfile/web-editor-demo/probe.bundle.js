@@ -16043,6 +16043,76 @@
   var performanceProbe;
   var pasteStart = 0;
   var pasteMs = null;
+  var jumpMs = null;
+  var jumpVisible = null;
+  var jumpTarget = 0;
+  var insertImageEffect = StateEffect.define();
+  var imagePlaceholder = "\uFFFC";
+  var imageData = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==";
+  var ImageBlock = class extends WidgetType {
+    eq() {
+      return true;
+    }
+    toDOM() {
+      const img = document.createElement("img");
+      img.src = imageData;
+      img.alt = "\u63D2\u56FE\u8BD5\u9A8C";
+      img.style.cssText = "display:block;width:200px;height:100px;object-fit:cover;margin:8px 0;border-radius:8px;background:#eee;";
+      return img;
+    }
+  };
+  var imageMark = Decoration.replace({ widget: new ImageBlock() });
+  var imageField = StateField.define({
+    create: () => Decoration.none,
+    update(deco, transaction) {
+      let next = deco.map(transaction.changes);
+      for (const effect of transaction.effects) {
+        if (effect.is(insertImageEffect)) next = next.update({ add: [imageMark.range(effect.value, effect.value + 1)] });
+      }
+      return next;
+    },
+    provide: (field) => EditorView.decorations.from(field)
+  });
+  function lineGaps() {
+    const rects = [];
+    const walker = document.createTreeWalker(view.contentDOM, NodeFilter.SHOW_TEXT);
+    let node;
+    while (node = walker.nextNode()) {
+      const range = document.createRange();
+      range.selectNodeContents(node);
+      for (const rect of range.getClientRects()) {
+        if (rect.height > 0) rects.push({ top: rect.top, bottom: rect.bottom });
+      }
+    }
+    rects.sort((a, b) => a.top - b.top);
+    const heights = rects.map((rect) => rect.bottom - rect.top).sort((a, b) => a - b);
+    const median = heights.length ? heights[Math.floor(heights.length / 2)] : 0;
+    let count = 0;
+    let visible = 0;
+    let max = 0;
+    const samples = [];
+    const box = view.scrollDOM.getBoundingClientRect();
+    for (let index = 1; index < rects.length; index++) {
+      const gap = rects[index].top - rects[index - 1].bottom;
+      if (gap > Math.max(8, median * 0.8)) {
+        count++;
+        max = Math.max(max, Math.round(gap));
+        const edge = rects[index - 1].bottom;
+        if (edge >= box.top && edge <= box.bottom) {
+          visible++;
+          if (samples.length < 5) samples.push({ gap: Math.round(gap), y: Math.round(edge - box.top) });
+        }
+      }
+    }
+    return {
+      count,
+      visible,
+      max,
+      samples,
+      firstTop: rects.length ? Math.round(rects[0].top - box.top) : null,
+      lastBottom: rects.length ? Math.round(rects[rects.length - 1].bottom - box.bottom) : null
+    };
+  }
   var extensions = [
     EditorView.lineWrapping,
     history(),
@@ -16060,7 +16130,9 @@
         }
       }
     }),
-    editableCompartment.of(EditorView.editable.of(true))
+    editableCompartment.of(EditorView.editable.of(true)),
+    imageField,
+    EditorView.atomicRanges.of((view2) => view2.state.field(imageField))
   ];
   var view = new EditorView({ state: EditorState.create({ extensions }), parent: document.getElementById("editor") });
   performanceProbe = new PerformanceProbe(view);
@@ -16109,6 +16181,10 @@
       status,
       ok,
       pasteMs,
+      gaps: lineGaps(),
+      jumpMs,
+      jumpVisible,
+      images: view.state.field(imageField).size,
       selectionFrom: selection.from,
       selectionTo: selection.to,
       composing: view.composing,
@@ -16212,9 +16288,30 @@
       status = undone ? `undo applied; length ${before} -> ${view.state.doc.length}` : "nothing to undo";
       return result({ undone });
     },
+    insertImage() {
+      if (!loaded) {
+        ok = false;
+        status = "load first";
+        return result({ check: false });
+      }
+      const from = view.state.selection.main.from;
+      view.dispatch({ changes: { from, insert: imagePlaceholder }, effects: insertImageEffect.of(from), selection: { anchor: from + 1 } });
+      status = "image placeholder inserted at caret";
+      return result({ images: view.state.field(imageField).size });
+    },
     jump(fraction) {
       const position = Math.round(view.state.doc.length * Math.max(0, Math.min(1, fraction)));
+      const start = performance.now();
+      jumpTarget = position;
+      jumpMs = null;
       view.dispatch({ selection: { anchor: position }, effects: EditorView.scrollIntoView(position, { y: "center" }) });
+      requestAnimationFrame(() => requestAnimationFrame(() => {
+        const coords = view.coordsAtPos(jumpTarget);
+        const box = view.scrollDOM.getBoundingClientRect();
+        jumpMs = Math.round((performance.now() - start) * 10) / 10;
+        jumpVisible = !!coords && coords.top >= box.top - 1 && coords.bottom <= box.bottom + 1;
+        result();
+      }));
       status = "jump requested; call snapshot after layout";
       return result();
     }

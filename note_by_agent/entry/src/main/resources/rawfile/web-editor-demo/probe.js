@@ -1,6 +1,6 @@
 // 使用完整文档模型与视口渲染，暴露仅操作合成实验数据的测量接口。
-import { EditorState, EditorSelection, Compartment } from '@codemirror/state';
-import { EditorView, keymap } from '@codemirror/view';
+import { EditorState, EditorSelection, Compartment, StateEffect, StateField } from '@codemirror/state';
+import { EditorView, keymap, Decoration, WidgetType } from '@codemirror/view';
 import { defaultKeymap, history, historyKeymap, undo, redo } from '@codemirror/commands';
 import { PerformanceProbe } from './performance';
 
@@ -16,6 +16,68 @@ let ok = null;
 let performanceProbe;
 let pasteStart = 0;
 let pasteMs = null;
+let jumpMs = null;
+let jumpVisible = null;
+let jumpTarget = 0;
+const insertImageEffect = StateEffect.define();
+const imagePlaceholder = '\uFFFC';
+const imageData = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==';
+class ImageBlock extends WidgetType {
+  eq() { return true; }
+  toDOM() {
+    const img = document.createElement('img');
+    img.src = imageData;
+    img.alt = '插图试验';
+    img.style.cssText = 'display:block;width:200px;height:100px;object-fit:cover;margin:8px 0;border-radius:8px;background:#eee;';
+    return img;
+  }
+}
+const imageMark = Decoration.replace({ widget: new ImageBlock() });
+const imageField = StateField.define({
+  create: () => Decoration.none,
+  update(deco, transaction) {
+    let next = deco.map(transaction.changes);
+    for (const effect of transaction.effects) {
+      if (effect.is(insertImageEffect)) next = next.update({ add: [imageMark.range(effect.value, effect.value + 1)] });
+    }
+    return next;
+  },
+  provide: field => EditorView.decorations.from(field)
+});
+function lineGaps() {
+  const rects = [];
+  const walker = document.createTreeWalker(view.contentDOM, NodeFilter.SHOW_TEXT);
+  let node;
+  while ((node = walker.nextNode())) {
+    const range = document.createRange();
+    range.selectNodeContents(node);
+    for (const rect of range.getClientRects()) {
+      if (rect.height > 0) rects.push({ top: rect.top, bottom: rect.bottom });
+    }
+  }
+  rects.sort((a, b) => a.top - b.top);
+  const heights = rects.map(rect => rect.bottom - rect.top).sort((a, b) => a - b);
+  const median = heights.length ? heights[Math.floor(heights.length / 2)] : 0;
+  let count = 0;
+  let visible = 0;
+  let max = 0;
+  const samples = [];
+  const box = view.scrollDOM.getBoundingClientRect();
+  for (let index = 1; index < rects.length; index++) {
+    const gap = rects[index].top - rects[index - 1].bottom;
+    if (gap > Math.max(8, median * 0.8)) {
+      count++;
+      max = Math.max(max, Math.round(gap));
+      const edge = rects[index - 1].bottom;
+      if (edge >= box.top && edge <= box.bottom) {
+        visible++;
+        if (samples.length < 5) samples.push({ gap: Math.round(gap), y: Math.round(edge - box.top) });
+      }
+    }
+  }
+  return { count, visible, max, samples, firstTop: rects.length ? Math.round(rects[0].top - box.top) : null,
+    lastBottom: rects.length ? Math.round(rects[rects.length - 1].bottom - box.bottom) : null };
+}
 const extensions = [EditorView.lineWrapping, history(), keymap.of([...defaultKeymap, ...historyKeymap]),
   EditorView.updateListener.of(update => {
     if (update.docChanged) {
@@ -29,7 +91,8 @@ const extensions = [EditorView.lineWrapping, history(), keymap.of([...defaultKey
         }));
       }
     }
-  }), editableCompartment.of(EditorView.editable.of(true))];
+  }), editableCompartment.of(EditorView.editable.of(true)), imageField,
+  EditorView.atomicRanges.of(view => view.state.field(imageField))];
 const view = new EditorView({ state: EditorState.create({ extensions }), parent: document.getElementById('editor') });
 performanceProbe = new PerformanceProbe(view);
 let editableState = true;
@@ -66,6 +129,7 @@ function result(extra = {}) {
     visibleRanges: view.visibleRanges.map(range => ({ from: range.from, to: range.to })),
     domLines: view.dom.querySelectorAll('.cm-line').length, contentHeight: view.contentHeight,
     viewportHeight: view.scrollDOM.clientHeight, changes, loadMs, status, ok, pasteMs,
+    gaps: lineGaps(), jumpMs, jumpVisible, images: view.state.field(imageField).size,
     selectionFrom: selection.from, selectionTo: selection.to, composing: view.composing,
     focused: view.hasFocus, performance: performanceProbe.snapshot(), ...extra };
   statusElement.textContent = JSON.stringify(data);
@@ -149,9 +213,26 @@ window.noteProbe = {
     status = undone ? `undo applied; length ${before} -> ${view.state.doc.length}` : 'nothing to undo';
     return result({ undone });
   },
+  insertImage() {
+    if (!loaded) { ok = false; status = 'load first'; return result({ check: false }); }
+    const from = view.state.selection.main.from;
+    view.dispatch({ changes: { from, insert: imagePlaceholder }, effects: insertImageEffect.of(from), selection: { anchor: from + 1 } });
+    status = 'image placeholder inserted at caret';
+    return result({ images: view.state.field(imageField).size });
+  },
   jump(fraction) {
     const position = Math.round(view.state.doc.length * Math.max(0, Math.min(1, fraction)));
+    const start = performance.now();
+    jumpTarget = position;
+    jumpMs = null;
     view.dispatch({ selection: { anchor: position }, effects: EditorView.scrollIntoView(position, { y: 'center' }) });
+    requestAnimationFrame(() => requestAnimationFrame(() => {
+      const coords = view.coordsAtPos(jumpTarget);
+      const box = view.scrollDOM.getBoundingClientRect();
+      jumpMs = Math.round((performance.now() - start) * 10) / 10;
+      jumpVisible = !!coords && coords.top >= box.top - 1 && coords.bottom <= box.bottom + 1;
+      result();
+    }));
     status = 'jump requested; call snapshot after layout';
     return result();
   }

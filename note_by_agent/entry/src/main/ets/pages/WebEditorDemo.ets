@@ -90,6 +90,8 @@ struct WebEditorDemo {
             .onClick(() => { this.seedClipboard(); })
           Button('撤销').margin({ right: 8, bottom: 8 }).enabled(this.ready && !this.busy)
             .onClick(() => this.execute('window.noteProbe.undoLast()'))
+          Button('插图').margin({ right: 8, bottom: 8 }).enabled(this.ready && !this.busy)
+            .onClick(() => this.execute('window.noteProbe.insertImage()'))
           Button('只读').margin({ right: 8, bottom: 8 }).enabled(this.ready && !this.busy)
             .onClick(() => this.setEditable(false))
           Button('编辑').margin({ right: 8, bottom: 8 }).enabled(this.ready && !this.busy)
