@@ -57,6 +57,7 @@ node scripts/test-editor-session.cjs
 node scripts/test-editor-async.cjs
 node scripts/test-text-hit-test.cjs
 node scripts/test-long-document.cjs
+node scripts/test-privacy-editor-refresh.cjs
 ```
 
 这些是行为检查或独立模型检查，不替代 ArkTS 构建及真实输入法、焦点、卡片宿主和动画资源验收。src/test 与 ohosTest 中仍有工程模板测试，不能据此认定已有完整单元测试覆盖。

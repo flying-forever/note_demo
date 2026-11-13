@@ -1,6 +1,10 @@
 {
   "color": [
     {
+      "name": "privacy_placeholder",
+      "value": "#E1E5EB"
+    },
+    {
       "name": "start_window_background",
       "value": "#F2F2F2"
     },
