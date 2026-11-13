@@ -464,6 +464,16 @@ struct NoteEditorWeb {
     }
   }
 
+  private async history(redo: boolean): Promise<void> {
+    if (!this.ready || this.disposed) {
+      return;
+    }
+    try {
+      await this.controller.runJavaScript(`window.noteProbe.${redo ? 'redoLast' : 'undoLast'}()`);
+    } catch {
+    }
+  }
+
   private async tryBack(): Promise<void> {
     if (this.leaving) {
       return;
@@ -547,6 +557,18 @@ struct NoteEditorWeb {
             this.session.changeTitle(value, false);
             this.scheduleDraftSave();
           })
+        Button('↶')
+          .width(36)
+          .height(44)
+          .backgroundColor(Color.Transparent)
+          .fontColor($r('app.color.text_secondary'))
+          .onClick(() => { this.history(false); })
+        Button('↷')
+          .width(36)
+          .height(44)
+          .backgroundColor(Color.Transparent)
+          .fontColor($r('app.color.text_secondary'))
+          .onClick(() => { this.history(true); })
         Text(this.saving ? '保存中…' : this.countLabel())
           .fontSize(12)
           .fontColor($r('app.color.text_secondary'))

@@ -289,6 +289,12 @@ window.noteProbe = {
     status = undone ? `undo applied; length ${before} -> ${view.state.doc.length}` : 'nothing to undo';
     return result({ undone });
   },
+  redoLast() {
+    const before = view.state.doc.length;
+    const redone = redo(view);
+    status = redone ? `redo applied; length ${before} -> ${view.state.doc.length}` : 'nothing to redo';
+    return result({ redone });
+  },
   insertImage(dataUri, width, height) {
     if (!loaded) { ok = false; status = 'load first'; return result({ check: false }); }
     const selection = view.state.selection.main;
