@@ -415,6 +415,11 @@ export async function loadPosition(noteId: string): Promise<StoredPosition | und
   }
 }
 
+export async function deletePosition(noteId: string): Promise<void> {
+  const store = noteDatabase();
+  await store.executeSql('DELETE FROM positions WHERE note_id = ?', [noteId]);
+}
+
 export async function getSetting(key: string): Promise<string | undefined> {
   const store = noteDatabase();
   const result: relationalStore.ResultSet = await store.querySql('SELECT value FROM settings WHERE key = ?', [key]);

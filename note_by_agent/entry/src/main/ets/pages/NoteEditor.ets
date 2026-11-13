@@ -374,7 +374,7 @@ struct NoteEditor {
       this.getUIContext().getPromptAction().showToast({ message: '请先保存笔记再使用长文外壳' });
       return;
     }
-    if (this.session.images.length > 0) {
+    if (this.session.images.length > 0 || this.session.hasImages()) {
       this.menuVisible = false;
       this.getUIContext().getPromptAction().showToast({ message: '含图笔记暂不支持长文外壳' });
       return;

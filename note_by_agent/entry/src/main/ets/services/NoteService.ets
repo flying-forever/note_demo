@@ -2,7 +2,7 @@
 import { Note } from '../model/Note';
 import { BodyBlock, NoteImage, documentText, copyImage } from '../model/NoteDocument';
 import { commitNote, commitNoteChecked, removeNote, updateNoteMeta } from '../repository/NoteRepository';
-import { loadStoredNote, StoredNoteRecord, listReferencedImagePaths, noteAttachmentPaths } from '../repository/NoteSqlRepository';
+import { loadStoredNote, StoredNoteRecord, deletePosition, listReferencedImagePaths, noteAttachmentPaths } from '../repository/NoteSqlRepository';
 import { releaseAttachmentFile } from '../platform/NoteAttachments';
 import { deleteDraftsForNote } from '../repository/DraftRepository';
 import { refreshDesktopCards } from '../platform/DesktopCards';
@@ -22,6 +22,7 @@ export interface NoteSaveRequest {
   skinId?: string;
   expectedSnapshot?: string;
   persistToDesktop?: boolean;
+  textOnly?: boolean;
 }
 
 export interface NoteSaveResult {
@@ -46,6 +47,10 @@ export function isBlankNote(title: string, blocks: BodyBlock[]): boolean {
 
 export async function saveNoteDraft(request: NoteSaveRequest): Promise<NoteSaveResult> {
   try {
+    if (request.textOnly && (request.images.length > 0 ||
+      request.blocks.some((block: BodyBlock) => block.imageId !== ''))) {
+      return { status: 'unsupported' };
+    }
     let original: Note | undefined;
     let baseRevision: number = 0;
     if (request.id !== '') {
@@ -137,6 +142,7 @@ export async function deleteNote(id: string): Promise<void> {
   const paths: string[] = await noteAttachmentPaths(id);
   await deleteDraftsForNote(id);
   await removeNote(id);
+  await deletePosition(id);
   try {
     const referenced: string[] = await listReferencedImagePaths();
     paths.forEach((path: string) => {

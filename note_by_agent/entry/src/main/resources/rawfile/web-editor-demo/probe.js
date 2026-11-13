@@ -22,6 +22,49 @@ let jumpTarget = 0;
 const insertImageEffect = StateEffect.define();
 const imagePlaceholder = '\uFFFC';
 const imageData = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==';
+let blockCounts = [];
+let docVersion = 0;
+let activeLine = 1;
+function countText(text) {
+  return Array.from(text.replace(/\s/g, '')).length;
+}
+function rebuildBlockCounts() {
+  blockCounts = view.state.doc.toString().split('\n').map(countText);
+}
+function updateBlockCounts(update) {
+  const oldLines = update.startState.doc.lines;
+  const newLines = update.state.doc.lines;
+  if (blockCounts.length !== oldLines) {
+    rebuildBlockCounts();
+    return;
+  }
+  let oldMin = oldLines;
+  let oldMax = 0;
+  let newMin = newLines;
+  let newMax = 0;
+  update.changes.iterChangedRanges((fromA, toA, fromB, toB) => {
+    const oldFrom = update.startState.doc.lineAt(Math.min(fromA, update.startState.doc.length)).number;
+    const oldTo = update.startState.doc.lineAt(Math.min(Math.max(fromA, toA - 1), update.startState.doc.length)).number;
+    const newFrom = update.state.doc.lineAt(Math.min(fromB, update.state.doc.length)).number;
+    const newTo = update.state.doc.lineAt(Math.min(Math.max(fromB, toB - 1), update.state.doc.length)).number;
+    oldMin = Math.min(oldMin, oldFrom);
+    oldMax = Math.max(oldMax, oldTo);
+    newMin = Math.min(newMin, newFrom);
+    newMax = Math.max(newMax, newTo);
+  });
+  if (oldMax === 0 || newMax === 0) {
+    rebuildBlockCounts();
+    return;
+  }
+  const next = blockCounts.slice(0, oldMin - 1);
+  for (let line = newMin; line <= newMax; line++) {
+    next.push(countText(update.state.doc.line(line).text));
+  }
+  const tail = blockCounts.slice(oldMax);
+  for (const value of tail) next.push(value);
+  blockCounts = next;
+  if (blockCounts.length !== newLines) rebuildBlockCounts();
+}
 class ImageBlock extends WidgetType {
   constructor(image) { super(); this.image = image; }
   eq(other) {
@@ -88,6 +131,8 @@ const extensions = [EditorView.lineWrapping, history({ newGroupDelay: 1000 }), k
   EditorView.updateListener.of(update => {
     if (update.docChanged) {
       changes++;
+      docVersion++;
+      updateBlockCounts(update);
       performanceProbe?.changed(update);
       if (pasteStart) {
         const start = pasteStart;
@@ -97,9 +142,15 @@ const extensions = [EditorView.lineWrapping, history({ newGroupDelay: 1000 }), k
         }));
       }
     }
+    if (update.selectionSet || update.docChanged) {
+      activeLine = update.state.doc.lineAt(update.state.selection.main.head).number;
+    }
   }), editableCompartment.of(EditorView.editable.of(true)), imageField,
   EditorView.atomicRanges.of(view => view.state.field(imageField))];
 const view = new EditorView({ state: EditorState.create({ extensions }), parent: document.getElementById('editor') });
+blockCounts = view.state.doc.toString().split('\n').map(countText);
+docVersion = 1;
+activeLine = 1;
 performanceProbe = new PerformanceProbe(view);
 let editableState = true;
 let pressAt = 0;
@@ -137,7 +188,9 @@ function result(extra = {}) {
     viewportHeight: view.scrollDOM.clientHeight, changes, loadMs, status, ok, pasteMs,
     gaps: lineGaps(), jumpMs, jumpVisible, images: view.state.field(imageField).size,
     selectionFrom: selection.from, selectionTo: selection.to, composing: view.composing,
-    focused: view.hasFocus, performance: performanceProbe.snapshot(), ...extra };
+    focused: view.hasFocus, count: blockCounts.reduce((total, value) => total + value, 0),
+    activeLine, version: docVersion, editable: editableState,
+    performance: performanceProbe.snapshot(), ...extra };
   statusElement.textContent = JSON.stringify(data);
   return JSON.stringify(data);
 }
@@ -149,6 +202,9 @@ window.noteProbe = {
     original = text;
     view.contentDOM.blur();
     view.setState(EditorState.create({ doc: text, extensions }));
+    blockCounts = text.split('\n').map(countText);
+    docVersion++;
+    activeLine = 1;
     view.scrollDOM.scrollTop = 0;
     loaded = true;
     changes = 0;
@@ -165,6 +221,19 @@ window.noteProbe = {
   },
   snapshot() { return result(); },
   getText() { return JSON.stringify(view.state.doc.toString()); },
+  getStats() {
+    return JSON.stringify({ version: docVersion, length: view.state.doc.length, count:
+      blockCounts.reduce((total, value) => total + value, 0), lines: view.state.doc.lines, activeLine,
+      editable: editableState });
+  },
+  jumpToLine(line) {
+    const number = Math.max(1, Math.min(view.state.doc.lines, Math.round(Number(line)) || 1));
+    const target = view.state.doc.line(number).from;
+    view.dispatch({ selection: { anchor: target }, effects: EditorView.scrollIntoView(target, { y: 'start' }) });
+    activeLine = number;
+    status = `jumped to line ${number}`;
+    return result({ jumpedLine: number });
+  },
   startPerformance() { performanceProbe.start(); return result(); },
   stopPerformance() { performanceProbe.stop(); return result(); },
   focusTail() {
