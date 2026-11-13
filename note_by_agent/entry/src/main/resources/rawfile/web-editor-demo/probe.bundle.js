@@ -16374,7 +16374,18 @@
     },
     getDocument() {
       syncImageIdsFromField();
-      return JSON.stringify({ text: view.state.doc.toString(), imageIds: documentImageIds });
+      const text = view.state.doc.toString();
+      const lines = text.split("\n");
+      const imageIds = [];
+      let index = 0;
+      for (const line of lines) {
+        if (line.indexOf(imagePlaceholder) >= 0) {
+          imageIds.push(documentImageIds[index++] || "");
+        } else {
+          imageIds.push("");
+        }
+      }
+      return JSON.stringify({ text, imageIds });
     },
     insertImageBlock(id, src, width, height, small, caption) {
       if (!loaded) {

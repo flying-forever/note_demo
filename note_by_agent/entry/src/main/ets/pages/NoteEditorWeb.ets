@@ -268,7 +268,7 @@ struct NoteEditorWeb {
       this.lastStatsVersion = -1;
       await this.controller.runJavaScript('window.noteProbe.setEditable(false)');
       await this.controller.runJavaScript(`window.noteProbe.jumpToLine(${this.initialLine})`);
-      this.status = `长文正文已加载（${textCount(this.initialText)} 字），定位第 ${this.initialLine} 行`;
+      this.status = `长文正文已加载（${this.charCount} 字），定位第 ${this.initialLine} 行`;
       this.startPolling();
     } catch {
       this.started = false;
@@ -478,8 +478,8 @@ struct NoteEditorWeb {
         result.status === 'empty' ? '标题和正文不能同时为空' : '保存失败，内容仍留在页面';
       this.getUIContext().getPromptAction().showToast({ message: this.status });
       return false;
-    } catch {
-      this.status = '保存失败，内容仍留在页面';
+    } catch (error) {
+      this.status = `保存失败：${String(error)}`;
       this.getUIContext().getPromptAction().showToast({ message: this.status });
       return false;
     } finally {
@@ -531,12 +531,14 @@ struct NoteEditorWeb {
       return;
     }
     this.pickingImage = true;
+    this.status = '正在打开相册';
     try {
       const options = new photoAccessHelper.PhotoSelectOptions();
       options.MIMEType = photoAccessHelper.PhotoViewMIMETypes.IMAGE_TYPE;
       options.maxSelectNumber = 1;
       const result = await new photoAccessHelper.PhotoViewPicker().select(options);
       if (result.photoUris.length === 0 || this.disposed) {
+        this.status = '未选择图片';
         return;
       }
       const context = this.getUIContext().getHostContext() as common.UIAbilityContext;
@@ -551,8 +553,10 @@ struct NoteEditorWeb {
         small: item.small, caption: item.caption });
       await this.controller.runJavaScript(`window.noteProbe.insertImageBlock(${JSON.stringify(item.id)},` +
         `${JSON.stringify(src)},${item.width},${item.height},${item.small},${JSON.stringify(item.caption)})`);
+      this.status = '已插入图片';
       this.scheduleDraftSave();
-    } catch {
+    } catch (error) {
+      this.status = `无法插入图片：${String(error)}`;
       this.getUIContext().getPromptAction().showToast({ message: '无法插入图片，请重新选择' });
     } finally {
       this.pickingImage = false;

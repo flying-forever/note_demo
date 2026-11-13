@@ -30,7 +30,7 @@
 
 首页onPageShow → refreshNotes 从 notes.db 重载摘要缓存 → listNotes → 筛选和双列展示。缓存只含标题、摘要与元信息，是同步读模型，数据库是权威存储；旧桌面 JSON 仅保留为卡片投影和回退。
 
-打开主编辑 → aboutToAppear 按 ID 从数据库加载整篇 → session.load复制草稿并初始化历史 → 输入更新session并约800ms写`drafts` → 离页先冲刷草稿再saveNoteDraft（异步）。业务层从数据库读取最新笔记与 revision，比对固定字段顺序snapshotNote后条件更新，返回saved/empty/conflict/deleted/storageError。事务内更新notes与blocks，提交后更新摘要缓存；随后平台刷新卡片，卡片刷新失败不回滚已保存笔记。正文保存前置，元数据更新保持顺序且不改变首页排序。已有笔记移动和换肤立即提交元数据，新草稿首次保存携带。打开已有笔记发现草稿时提示恢复或忽略，`base_revision` 不一致时提示旧版本。主编辑「更多 → 长文编辑」先把当前页保存，再按 ID 打开 `NoteEditorWeb`：读块用换行拼整篇交给 CodeMirror，标题用原生输入，返回时取回全文按带权对齐复用原块 ID，经同一 `saveNoteDraft` 写库；旧含图笔记用缩略图 data URL 和 `\uFFFC` 占位块显示，新图插入/浮层尚未验收。旧主编辑页仍保留，二者尚未共享 UI 外壳。Web 外壳已在页面可见时定时取字数、约 800ms 写草稿并冲刷，打开时按 `positions.edit_block_id` 定位到块；拆合块边界、撤销分组和真实粘贴仍待验，4b 再处理新图插入、精确偏移与 10 万字。
+打开主编辑 → aboutToAppear 按 ID 从数据库加载整篇 → session.load复制草稿并初始化历史 → 输入更新session并约800ms写`drafts` → 离页先冲刷草稿再saveNoteDraft（异步）。业务层从数据库读取最新笔记与 revision，比对固定字段顺序snapshotNote后条件更新，返回saved/empty/conflict/deleted/storageError。事务内更新notes与blocks，提交后更新摘要缓存；随后平台刷新卡片，卡片刷新失败不回滚已保存笔记。正文保存前置，元数据更新保持顺序且不改变首页排序。已有笔记移动和换肤立即提交元数据，新草稿首次保存携带。打开已有笔记发现草稿时提示恢复或忽略，`base_revision` 不一致时提示旧版本。主编辑「更多 → 长文编辑」先把当前页保存，再按 ID 打开 `NoteEditorWeb`：读块用换行拼整篇交给 CodeMirror，标题用原生输入，返回时取回全文按带权对齐复用原块 ID，经同一 `saveNoteDraft` 写库；旧含图笔记用缩略图 data URL 和 `\uFFFC` 占位块显示，新图压缩后由“图”按钮插入并保存。旧主编辑页仍保留，二者尚未共享 UI 外壳。Web 外壳已在页面可见时定时取字数、约 800ms 写草稿并冲刷，打开时按 `positions.edit_block_id` 定位到块；拆合块边界、撤销分组和真实粘贴仍待验，4b 再处理图片删除/浮层、精确偏移与 10 万字。
 
 进入桌面预览 → persistToDesktop保存完整Note到数据库，并写桌面JSON投影供卡片同步读取 → AddFormMenuItem → form关联。每个formId为string，允许多卡对应一笔记。移除只删关联；删除已持久笔记写数据库墓碑和JSON墓碑并刷新删除状态。UIAbility和扩展共享数据库文件与私有目录，不能靠模块单例跨进程通信。
 

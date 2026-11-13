@@ -104,6 +104,76 @@ export function thumbnailDataUrl(path: string): string {
   }
 }
 
+interface ImportedImageMeta {
+  width: number;
+  height: number;
+  bytes: number;
+}
+
+async function readImportedImage(temporary: string): Promise<ImportedImageMeta> {
+  const file = fs.openSync(temporary, fs.OpenMode.READ_ONLY);
+  try {
+    const decoder = image.createImageSource(file.fd);
+    try {
+      const info = await decoder.getImageInfo();
+      return { width: info.size.width, height: info.size.height, bytes: fs.statSync(temporary).size };
+    } finally {
+      await decoder.release();
+    }
+  } finally {
+    fs.closeSync(file);
+  }
+}
+
+async function compressImage(temporary: string): Promise<ImportedImageMeta> {
+  const source: image.ImageSource = image.createImageSource(temporary);
+  try {
+    const info = await source.getImageInfo();
+    const longest: number = Math.max(info.size.width, info.size.height);
+    if (longest <= 0) {
+      throw new Error('图片尺寸无效');
+    }
+    const baseScale: number = Math.min(1, 2048 / longest);
+    const scales: number[] = [baseScale, baseScale * 0.75, baseScale * 0.5];
+    const qualities: number[] = [85, 75, 65];
+    for (const scale of scales) {
+      const width: number = Math.max(1, Math.round(info.size.width * scale));
+      const height: number = Math.max(1, Math.round(info.size.height * scale));
+      const pixel: image.PixelMap = await source.createPixelMap({ desiredSize: { width: width, height: height } });
+      try {
+        for (const quality of qualities) {
+          const compressed: string = temporary + '.jpg.part';
+          try {
+            const file = fs.openSync(compressed, fs.OpenMode.CREATE | fs.OpenMode.READ_WRITE | fs.OpenMode.TRUNC);
+            try {
+              const packer: image.ImagePacker = image.createImagePacker();
+              try {
+                await packer.packToFile(pixel, file.fd, { format: 'image/jpeg', quality: quality });
+              } finally {
+                await packer.release();
+              }
+            } finally {
+              fs.closeSync(file);
+            }
+            const bytes: number = fs.statSync(compressed).size;
+            if (bytes <= MAX_IMAGE_BYTES) {
+              fs.renameSync(compressed, temporary);
+              return { width: width, height: height, bytes: bytes };
+            }
+          } finally {
+            try { fs.unlinkSync(compressed); } catch {}
+          }
+        }
+      } finally {
+        await pixel.release();
+      }
+    }
+    throw new Error('图片过大，压缩后仍超过 500KB');
+  } finally {
+    await source.release();
+  }
+}
+
 export async function importNoteImage(filesDir: string, uri: string): Promise<NoteImage> {
   const directory: string = filesDir + IMAGE_DIRECTORY;
   if (!fs.accessSync(directory)) { fs.mkdirSync(directory, true); }
@@ -113,29 +183,18 @@ export async function importNoteImage(filesDir: string, uri: string): Promise<No
   try {
     const source = fs.openSync(uri, fs.OpenMode.READ_ONLY);
     try { fs.copyFileSync(source.fd, temporary); } finally { fs.closeSync(source); }
-    const bytes: number = fs.statSync(temporary).size;
-    if (bytes > MAX_IMAGE_BYTES) {
-      throw new Error('Image too large');
+    let meta: ImportedImageMeta = await readImportedImage(temporary);
+    if (meta.bytes > MAX_IMAGE_BYTES) {
+      meta = await compressImage(temporary);
     }
-    const file = fs.openSync(temporary, fs.OpenMode.READ_ONLY);
-    let width: number = 1;
-    let height: number = 1;
-    try {
-      const decoder = image.createImageSource(file.fd);
-      try {
-        const info = await decoder.getImageInfo();
-        width = info.size.width;
-        height = info.size.height;
-      } finally { await decoder.release(); }
-    } finally { fs.closeSync(file); }
     fs.renameSync(temporary, path);
     await ensureThumbnail(path);
-    return { id: id, path: path, name: id, width: width, height: height,
-      bytes: bytes, caption: '', small: false };
+    return { id: id, path: path, name: id, width: meta.width, height: meta.height,
+      bytes: meta.bytes, caption: '', small: false };
   } catch (error) {
     try { fs.unlinkSync(temporary); } catch {}
     try { fs.unlinkSync(path); } catch {}
-    throw new Error('Image import failed');
+    throw new Error(`Image import failed: ${String(error)}`);
   }
 }
 
