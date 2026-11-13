@@ -10,6 +10,12 @@ export const TECH_DEMOS_ENABLED: boolean = true;
 
 export const DEMO_CATALOG: DemoEntry[] = [
   {
+    id: 'privacy-editor',
+    title: '隐私编辑',
+    description: '光标行可见、其余遮挡；按住查看全文。仅使用不保存的临时文字。',
+    route: 'pages/PrivacyEditorDemo'
+  },
+  {
     id: 'long-document',
     title: '长笔记与位置定位',
     description: '2 万 / 10 万字符、整篇输入与懒加载对比。仅使用临时数据。',

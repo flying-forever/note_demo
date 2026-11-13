@@ -4,6 +4,7 @@
 
 | 实验 | API与调用位置 | 失败边界与验收状态 |
 | --- | --- | --- |
+| 隐私编辑 | pages/PrivacyEditorDemo；TextAreaController.getCaretOffset（API11）、getTextContentRect（API10）、UIContext.postFrameCallback、windowEvent与Window.isFocused（API12），本地API19声明核对 | 坐标无效或刷新中全遮；失焦取消临时查看，离页注销窗口监听。固定字号/行高的纯文字显示实验；不保护输入法、系统选区浮层及无障碍输出。局部设备验证和未验项见[首轮记录](archive/2026-11-13-privacy-editor-demo.md) |
 | 长文分块 | pages/LongDocumentDemo；List、LazyForEach/IDataSource、Scroller.scrollToIndex、TextArea | 临时合成数据；基础冒烟不等于跨块选择、真实输入法、精确定位与性能验收 |
 | 数据库 | diagnostics/DatabaseProbe及pages/DatabaseDemo；ArkData relationalStore、条件update、事务、ResultSet/句柄close | 仅tech_demo_stage1.db，finally关闭结果集，结束释放句柄、防重复与运行中返回；同进程双句柄不等于真实跨扩展并发，损坏/磁盘满未验收 |
 | 原生编辑 | pages/NativeEditorDemo；RichEditorController、RichEditorStyledStringController、StyledString、LayoutManager、UIContext.postFrameCallback | 本地API19核对；默认不聚焦键盘。帧空闲不等于像素呈现，批量路径高内存及一次RssThresholdKiller退出使稳定性不通过；不能用于正式性能通过结论 |
