@@ -13,6 +13,7 @@ export class NoteEditorSession {
   canRedo: boolean = false;
   activeBlock: string = '';
   caret: number = 0;
+  baseRevision: number = 0;
   private history: NoteHistory = new NoteHistory('', '');
   private pastePending: boolean = false;
   private savedTitle: string = '';
@@ -36,6 +37,17 @@ export class NoteEditorSession {
     this.savedTitle = this.title;
     this.savedBlocks = JSON.stringify(this.blocks);
     this.savedImages = JSON.stringify(this.images);
+  }
+
+  restoreDraft(title: string, blocks: BodyBlock[], images: NoteImage[]): void {
+    this.title = title;
+    this.blocks = blocks.map((block: BodyBlock) => ({ id: block.id, text: block.text, imageId: block.imageId } as BodyBlock));
+    this.images = images.map((item: NoteImage) => copyImage(item));
+    this.content = documentText(this.blocks);
+    this.history = new NoteHistory(this.title, JSON.stringify(this.blocks));
+    this.activeBlock = this.blocks.find((block: BodyBlock) => block.imageId === '')?.id ?? '';
+    this.caret = 0;
+    this.updateHistoryButtons();
   }
 
   isDirty(): boolean {

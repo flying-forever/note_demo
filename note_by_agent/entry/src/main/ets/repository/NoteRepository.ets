@@ -1,18 +1,83 @@
-// 管理内存笔记列表，并同步和选择性持久化桌面笔记。
+// 维护笔记内存缓存，并把写入委托给关系型存储与桌面卡片投影。
+import { common } from '@kit.AbilityKit';
 import { FAKE_NOTES, Note } from '../model/Note';
-import { listDesktopRecords, readDesktopRecord, persistDesktopNote, deleteDesktopNote } from './DesktopNoteRepository';
+import { initializeDesktopRepository, listDesktopRecords, persistDesktopNote, deleteDesktopNote,
+  readDesktopRecord } from './DesktopNoteRepository';
+import { openNoteDatabase } from './NoteDatabase';
+import { loadNoteSummaries, loadStoredNote, saveNoteRecord, saveNoteChecked, deleteNoteRecord, updateNoteRecord,
+  migrateDesktopRecords, seedSampleNotes, getSetting, setSetting, setNoteFilesDir, noteSummary,
+  listReferencedImagePaths, NoteWriteResult } from './NoteSqlRepository';
+import { cleanupOrphanImages, ensureThumbnail } from '../platform/NoteAttachments';
 
-let notes: Note[] = FAKE_NOTES.slice();
+const SEED_KEY: string = 'bootstrap.samples.v1';
+const SEED_VALUE: string = 'seeded';
+const MIGRATION_KEY: string = 'migration.desktop_json.v1';
+const MIGRATION_COUNT: string = 'migration.desktop_json.v1.count';
+const MIGRATION_ERROR: string = 'migration.desktop_json.v1.error';
 
-export function syncDesktopNotes(): void {
-  const records = listDesktopRecords();
-  const restored: Note[] = [];
-  records.forEach((record) => {
-    if (!record.deleted && record.note) {
-      restored.push(record.note);
+let notes: Note[] = [];
+let ready: boolean = false;
+let filesDirectory: string = '';
+
+export function noteRepositoryReady(): boolean {
+  return ready;
+}
+
+export async function initializeNoteRepository(context: common.Context): Promise<void> {
+  initializeDesktopRepository(context.filesDir);
+  setNoteFilesDir(context.filesDir);
+  filesDirectory = context.filesDir;
+  await openNoteDatabase(context);
+  if ((await getSetting(MIGRATION_KEY)) !== 'done') {
+    await setSetting(MIGRATION_KEY, 'running');
+    try {
+      const migrated: number = await migrateDesktopRecords(listDesktopRecords());
+      await setSetting(MIGRATION_COUNT, String(migrated));
+      await setSetting(MIGRATION_KEY, 'done');
+    } catch (error) {
+      await setSetting(MIGRATION_ERROR, String(error));
+      await setSetting(MIGRATION_KEY, 'failed');
+      throw new Error(String(error));
     }
-  });
-  notes = [...restored, ...notes.filter((note: Note) => !records.some((record) => record.id === note.id))];
+  }
+  if ((await getSetting(SEED_KEY)) !== SEED_VALUE) {
+    await seedSampleNotes(FAKE_NOTES);
+    await setSetting(SEED_KEY, SEED_VALUE);
+  }
+  notes = await loadNoteSummaries();
+  try {
+    cleanupOrphanImages(context.filesDir, await listReferencedImagePaths());
+  } catch {
+  }
+  ready = true;
+  warmThumbnails().catch(() => {});
+}
+
+async function warmThumbnails(): Promise<void> {
+  try {
+    const referenced: string[] = await listReferencedImagePaths();
+    for (const path of referenced) {
+      await ensureThumbnail(path);
+    }
+  } catch {
+  }
+}
+
+export async function refreshNotes(): Promise<void> {
+  if (!ready) {
+    return;
+  }
+  notes = await loadNoteSummaries();
+}
+
+export async function loadFullNote(id: string): Promise<Note | undefined> {
+  const stored = await loadStoredNote(id);
+  return stored?.note;
+}
+
+function summaryOf(note: Note): Note {
+  return { id: note.id, title: note.title, content: noteSummary(note), timeLabel: note.timeLabel,
+    group: note.group, skinId: note.skinId };
 }
 
 export function listNotes(): Note[] {
@@ -23,15 +88,57 @@ export function findNote(id: string): Note | undefined {
   return notes.find((note: Note) => note.id === id);
 }
 
-export function commitNote(note: Note, persistToDesktop: boolean = false, reorder: boolean = true): void {
-  if (persistToDesktop || readDesktopRecord(note.id)) {
-    persistDesktopNote(note);
+export async function commitNote(note: Note, persistToDesktop: boolean = false,
+  reorder: boolean = true): Promise<Note> {
+  const saved: Note = await saveNoteRecord(note);
+  if (persistToDesktop || readDesktopRecord(saved.id)) {
+    persistDesktopNote(saved);
   }
-  notes = reorder ? [note, ...notes.filter((item: Note) => item.id !== note.id)] :
-    notes.map((item: Note) => item.id === note.id ? note : item);
+  notes = reorder ? [summaryOf(saved), ...notes.filter((item: Note) => item.id !== saved.id)] :
+    notes.map((item: Note) => item.id === saved.id ? summaryOf(saved) : item);
+  return saved;
 }
 
-export function removeNote(id: string): void {
+export async function commitNoteChecked(note: Note, expectedRevision: number,
+  persistToDesktop: boolean = false): Promise<NoteWriteResult> {
+  const result: NoteWriteResult = await saveNoteChecked(note, expectedRevision);
+  if (result.status !== 'saved' || !result.note) {
+    return result;
+  }
+  const saved: Note = result.note;
+  if (persistToDesktop || readDesktopRecord(saved.id)) {
+    persistDesktopNote(saved);
+  }
+  notes = [summaryOf(saved), ...notes.filter((item: Note) => item.id !== saved.id)];
+  return result;
+}
+
+export async function updateNoteMeta(id: string, group?: string, skinId?: string): Promise<Note | undefined> {
+  await updateNoteRecord(id, group, skinId);
+  let updated: Note | undefined = undefined;
+  notes = notes.map((item: Note) => {
+    if (item.id !== id) {
+      return item;
+    }
+    updated = { id: item.id, title: item.title, content: item.content, timeLabel: item.timeLabel,
+      group: group ?? item.group, skinId: skinId ?? item.skinId };
+    return updated;
+  });
+  if (readDesktopRecord(id)) {
+    const full: Note | undefined = await loadFullNote(id);
+    if (full) {
+      persistDesktopNote(full);
+    }
+  }
+  return updated;
+}
+
+export async function removeNote(id: string): Promise<void> {
+  await deleteNoteRecord(id);
   deleteDesktopNote(id);
   notes = notes.filter((note: Note) => note.id !== id);
+  try {
+    cleanupOrphanImages(filesDirectory, await listReferencedImagePaths());
+  } catch {
+  }
 }

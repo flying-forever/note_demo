@@ -1,0 +1,429 @@
+// 使用完整文档模型与视口渲染，暴露仅操作合成实验数据的测量接口。
+import { EditorState, EditorSelection, Compartment, StateEffect, StateField } from '@codemirror/state';
+import { EditorView, keymap, Decoration, WidgetType } from '@codemirror/view';
+import { defaultKeymap, history, historyKeymap, undo, redo } from '@codemirror/commands';
+import { PerformanceProbe } from './performance';
+
+const statusElement = document.getElementById('status');
+const editableCompartment = new Compartment();
+let original = '';
+let loaded = false;
+let changes = 0;
+let loadMs = null;
+let status = 'ready';
+let token = 0;
+let ok = null;
+let performanceProbe;
+let pasteStart = 0;
+let pasteMs = null;
+let jumpMs = null;
+let jumpVisible = null;
+let jumpTarget = 0;
+const insertImageEffect = StateEffect.define();
+const refreshImagesEffect = StateEffect.define();
+const imagePlaceholder = '\uFFFC';
+const imageData = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==';
+const imageSources = new Map();
+const imageMeta = new Map();
+let documentImageIds = [];
+let pendingImageIds = [];
+let blockCounts = [];
+function countText(text) {
+  return Array.from(text.replace(/\uFFFC/g, '').replace(/\s/g, '')).length;
+}
+let docVersion = 0;
+let activeLine = 1;
+function rebuildBlockCounts() {
+  blockCounts = view.state.doc.toString().split('\n').map(countText);
+}
+function updateBlockCounts(update) {
+  const oldLines = update.startState.doc.lines;
+  const newLines = update.state.doc.lines;
+  if (blockCounts.length !== oldLines) {
+    rebuildBlockCounts();
+    return;
+  }
+  let oldMin = oldLines;
+  let oldMax = 0;
+  let newMin = newLines;
+  let newMax = 0;
+  update.changes.iterChangedRanges((fromA, toA, fromB, toB) => {
+    const oldFrom = update.startState.doc.lineAt(Math.min(fromA, update.startState.doc.length)).number;
+    const oldTo = update.startState.doc.lineAt(Math.min(Math.max(fromA, toA - 1), update.startState.doc.length)).number;
+    const newFrom = update.state.doc.lineAt(Math.min(fromB, update.state.doc.length)).number;
+    const newTo = update.state.doc.lineAt(Math.min(Math.max(fromB, toB - 1), update.state.doc.length)).number;
+    oldMin = Math.min(oldMin, oldFrom);
+    oldMax = Math.max(oldMax, oldTo);
+    newMin = Math.min(newMin, newFrom);
+    newMax = Math.max(newMax, newTo);
+  });
+  if (oldMax === 0 || newMax === 0) {
+    rebuildBlockCounts();
+    return;
+  }
+  const next = blockCounts.slice(0, oldMin - 1);
+  for (let line = newMin; line <= newMax; line++) {
+    next.push(countText(update.state.doc.line(line).text));
+  }
+  const tail = blockCounts.slice(oldMax);
+  for (const value of tail) next.push(value);
+  blockCounts = next;
+  if (blockCounts.length !== newLines) rebuildBlockCounts();
+}
+class ImageBlock extends WidgetType {
+  constructor(imageId, image) { super(); this.imageId = imageId; this.image = image; }
+  eq(other) {
+    return other.imageId === this.imageId && other.image.src === this.image.src &&
+      other.image.width === this.image.width && other.image.height === this.image.height &&
+      other.image.small === this.image.small && other.image.caption === this.image.caption;
+  }
+  toDOM() {
+    const wrapper = document.createElement('div');
+    wrapper.style.cssText = 'display:block;margin:8px 0;';
+    const img = document.createElement('img');
+    img.src = this.image.src || imageSources.get(this.imageId) || imageData;
+    img.alt = this.image.caption || '笔记图片';
+    const width = this.image.small ? '50%' : '100%';
+    img.style.cssText = `display:block;width:${width};max-height:70vh;object-fit:contain;border-radius:8px;background:#eee;`;
+    wrapper.appendChild(img);
+    if (this.image.caption) {
+      const caption = document.createElement('div');
+      caption.textContent = this.image.caption;
+      caption.style.cssText = 'font-size:13px;color:#666;text-align:center;padding-top:4px;';
+      wrapper.appendChild(caption);
+    }
+    return wrapper;
+  }
+}
+function imageFor(id) {
+  const meta = imageMeta.get(id) || {};
+  return { src: imageSources.get(id) || '', width: meta.width || 320, height: meta.height || 200,
+    small: !!meta.small, caption: meta.caption || '' };
+}
+function buildImageDecorations(state) {
+  let deco = Decoration.none;
+  if (documentImageIds.length === 0) return deco;
+  const text = state.doc.toString();
+  let from = 0;
+  let index = 0;
+  while (index < documentImageIds.length) {
+    const position = text.indexOf(imagePlaceholder, from);
+    if (position < 0) break;
+    const id = documentImageIds[index++];
+    const image = imageFor(id);
+    deco = deco.update({ add: [Decoration.replace({ widget: new ImageBlock(id, image) }).range(position, position + 1)] });
+    from = position + 1;
+  }
+  return deco;
+}
+const imageField = StateField.define({
+  create: state => buildImageDecorations(state),
+  update(deco, transaction) {
+    let next = deco.map(transaction.changes).update({ filter: (from, to) => from < to });
+    for (const effect of transaction.effects) {
+      if (effect.is(refreshImagesEffect)) {
+        return buildImageDecorations(transaction.state);
+      }
+      if (effect.is(insertImageEffect)) {
+        const value = effect.value;
+        const mark = Decoration.replace({ widget: new ImageBlock(value.imageId, value.image) });
+        next = next.update({ add: [mark.range(value.from, value.from + 1)] });
+      }
+    }
+    return next;
+  },
+  provide: field => EditorView.decorations.from(field)
+});
+function syncImageIdsFromField() {
+  const ids = [];
+  const field = view.state.field(imageField);
+  field.between(0, view.state.doc.length, (from, to, value) => {
+    if (value.widget && value.widget.imageId) {
+      ids.push(value.widget.imageId);
+    }
+  });
+  documentImageIds = ids;
+}
+function lineGaps() {
+  const rects = [];
+  const walker = document.createTreeWalker(view.contentDOM, NodeFilter.SHOW_TEXT);
+  let node;
+  while ((node = walker.nextNode())) {
+    const range = document.createRange();
+    range.selectNodeContents(node);
+    for (const rect of range.getClientRects()) {
+      if (rect.height > 0) rects.push({ top: rect.top, bottom: rect.bottom });
+    }
+  }
+  rects.sort((a, b) => a.top - b.top);
+  const heights = rects.map(rect => rect.bottom - rect.top).sort((a, b) => a - b);
+  const median = heights.length ? heights[Math.floor(heights.length / 2)] : 0;
+  let count = 0;
+  let visible = 0;
+  let max = 0;
+  const samples = [];
+  const box = view.scrollDOM.getBoundingClientRect();
+  for (let index = 1; index < rects.length; index++) {
+    const gap = rects[index].top - rects[index - 1].bottom;
+    if (gap > Math.max(8, median * 0.8)) {
+      count++;
+      max = Math.max(max, Math.round(gap));
+      const edge = rects[index - 1].bottom;
+      if (edge >= box.top && edge <= box.bottom) {
+        visible++;
+        if (samples.length < 5) samples.push({ gap: Math.round(gap), y: Math.round(edge - box.top) });
+      }
+    }
+  }
+  return { count, visible, max, samples, firstTop: rects.length ? Math.round(rects[0].top - box.top) : null,
+    lastBottom: rects.length ? Math.round(rects[rects.length - 1].bottom - box.bottom) : null };
+}
+const extensions = [EditorView.lineWrapping, history({ newGroupDelay: 1000 }), keymap.of([...defaultKeymap, ...historyKeymap]),
+  EditorView.updateListener.of(update => {
+    if (update.docChanged) {
+      changes++;
+      docVersion++;
+      updateBlockCounts(update);
+      syncImageIdsFromField();
+      performanceProbe?.changed(update);
+      if (pasteStart) {
+        const start = pasteStart;
+        requestAnimationFrame(() => requestAnimationFrame(() => {
+          pasteMs = Math.round(Math.max(pasteMs || 0, performance.now() - start) * 10) / 10;
+          pasteStart = 0;
+        }));
+      }
+    }
+    if (update.selectionSet || update.docChanged) {
+      activeLine = update.state.doc.lineAt(update.state.selection.main.head).number;
+    }
+  }), editableCompartment.of(EditorView.editable.of(true)), imageField,
+  EditorView.atomicRanges.of(view => view.state.field(imageField))];
+const view = new EditorView({ state: EditorState.create({ extensions }), parent: document.getElementById('editor') });
+blockCounts = view.state.doc.toString().split('\n').map(countText);
+docVersion = 1;
+activeLine = 1;
+performanceProbe = new PerformanceProbe(view);
+let editableState = true;
+let pressAt = 0;
+let pressX = 0;
+let pressY = 0;
+view.contentDOM.addEventListener('paste', () => {
+  pasteStart = performance.now();
+  pasteMs = null;
+}, true);
+view.contentDOM.addEventListener('pointerdown', event => {
+  if (editableState) return;
+  pressAt = performance.now();
+  pressX = event.clientX;
+  pressY = event.clientY;
+});
+view.contentDOM.addEventListener('pointerup', event => {
+  const quick = performance.now() - pressAt < 400;
+  const still = Math.hypot(event.clientX - pressX, event.clientY - pressY) < 8;
+  pressAt = 0;
+  if (editableState || !quick || !still) return;
+  const position = view.posAtCoords({ x: event.clientX, y: event.clientY });
+  if (position == null) return;
+  editableState = true;
+  view.dispatch({ effects: editableCompartment.reconfigure(EditorView.editable.of(true)), selection: { anchor: position } });
+  view.focus();
+  status = 'tap entered edit mode at tapped position';
+  result();
+});
+function result(extra = {}) {
+  const selection = view.state.selection.main;
+  const data = { ready: true, loaded, length: view.state.doc.length, lines: view.state.doc.lines,
+    viewportFrom: view.viewport.from, viewportTo: view.viewport.to,
+    visibleRanges: view.visibleRanges.map(range => ({ from: range.from, to: range.to })),
+    domLines: view.dom.querySelectorAll('.cm-line').length, contentHeight: view.contentHeight,
+    viewportHeight: view.scrollDOM.clientHeight, changes, loadMs, status, ok, pasteMs,
+    gaps: lineGaps(), jumpMs, jumpVisible, images: view.state.field(imageField).size,
+    selectionFrom: selection.from, selectionTo: selection.to, composing: view.composing,
+    focused: view.hasFocus, count: blockCounts.reduce((total, value) => total + value, 0),
+    activeLine, version: docVersion, editable: editableState,
+    performance: performanceProbe.snapshot(), ...extra };
+  statusElement.textContent = JSON.stringify(data);
+  return JSON.stringify(data);
+}
+window.noteProbe = {
+  ready: true,
+  load(text) {
+    const current = ++token;
+    const start = performance.now();
+    original = text;
+    view.contentDOM.blur();
+    documentImageIds = [];
+    view.setState(EditorState.create({ doc: text, extensions }));
+    blockCounts = text.split('\n').map(countText);
+    docVersion++;
+    activeLine = 1;
+    view.scrollDOM.scrollTop = 0;
+    loaded = true;
+    changes = 0;
+    loadMs = null;
+    ok = null;
+    status = 'loaded; waiting for two animation frames (not cold first paint)';
+    requestAnimationFrame(() => requestAnimationFrame(() => {
+      if (current !== token) return;
+      loadMs = Math.round((performance.now() - start) * 10) / 10;
+      status = 'loaded; loadMs includes model creation and two animation frames, excludes ArkTS bridge';
+      result();
+    }));
+    return result();
+  },
+  snapshot() { return result(); },
+  getText() { return JSON.stringify({ text: view.state.doc.toString() }); },
+  beginImages() {
+    imageSources.clear();
+    imageMeta.clear();
+    pendingImageIds = [];
+    documentImageIds = [];
+    return JSON.stringify({ ok: true });
+  },
+  putImage(id, src, width, height, small, caption) {
+    if (typeof id !== 'string' || id === '') return JSON.stringify({ ok: false });
+    if (typeof src === 'string' && src.startsWith('data:image/')) {
+      imageSources.set(id, src);
+    }
+    imageMeta.set(id, { width: Math.round(Number(width)) || 320, height: Math.round(Number(height)) || 200,
+      small: !!small, caption: typeof caption === 'string' ? caption : '' });
+    pendingImageIds.push(id);
+    return JSON.stringify({ ok: true, count: pendingImageIds.length });
+  },
+  endImages() {
+    documentImageIds = pendingImageIds.slice();
+    view.dispatch({ effects: refreshImagesEffect.of(null) });
+    syncImageIdsFromField();
+    return JSON.stringify({ registered: imageSources.size, placeholders:
+      (view.state.doc.toString().match(/\uFFFC/g) || []).length, ids: documentImageIds.length });
+  },
+  getDocument() {
+    syncImageIdsFromField();
+    const text = view.state.doc.toString();
+    const lines = text.split('\n');
+    const imageIds = [];
+    let index = 0;
+    for (const line of lines) {
+      if (line.indexOf(imagePlaceholder) >= 0) {
+        imageIds.push(documentImageIds[index++] || '');
+      } else {
+        imageIds.push('');
+      }
+    }
+    return JSON.stringify({ text, imageIds });
+  },
+  insertImageBlock(id, src, width, height, small, caption) {
+    if (!loaded) { ok = false; status = 'load first'; return result({ check: false }); }
+    const selection = view.state.selection.main;
+    const prefix = view.state.doc.sliceString(0, selection.from);
+    const index = (prefix.match(/\uFFFC/g) || []).length;
+    if (typeof src === 'string' && src.startsWith('data:image/')) imageSources.set(id, src);
+    imageMeta.set(id, { width: Math.round(Number(width)) || 320, height: Math.round(Number(height)) || 200,
+      small: !!small, caption: typeof caption === 'string' ? caption : '' });
+    documentImageIds.splice(index, 0, id);
+    const inserted = `\n${imagePlaceholder}\n`;
+    view.dispatch({ changes: { from: selection.from, to: selection.to, insert: inserted },
+      effects: refreshImagesEffect.of(null), selection: { anchor: selection.from + inserted.length } });
+    syncImageIdsFromField();
+    status = 'image placeholder inserted at caret';
+    return result({ images: view.state.field(imageField).size });
+  },
+  getStats() {
+    return JSON.stringify({ version: docVersion, length: view.state.doc.length, count:
+      blockCounts.reduce((total, value) => total + value, 0), lines: view.state.doc.lines, activeLine,
+      editable: editableState });
+  },
+  jumpToLine(line) {
+    const number = Math.max(1, Math.min(view.state.doc.lines, Math.round(Number(line)) || 1));
+    const target = view.state.doc.line(number).from;
+    view.dispatch({ selection: { anchor: target }, effects: EditorView.scrollIntoView(target, { y: 'start' }) });
+    activeLine = number;
+    status = `jumped to line ${number}`;
+    return result({ jumpedLine: number });
+  },
+  startPerformance() { performanceProbe.start(); return result(); },
+  stopPerformance() { performanceProbe.stop(); return result(); },
+  focusTail() {
+    view.dispatch({ selection: { anchor: view.state.doc.length }, scrollIntoView: true });
+    view.focus();
+    status = 'focused at document end; awaiting actual input';
+    return result();
+  },
+  clearFocus() { view.contentDOM.blur(); return result(); },
+  setEditable(editable) {
+    editableState = !!editable;
+    view.dispatch({ effects: editableCompartment.reconfigure(EditorView.editable.of(editableState)) });
+    if (!editableState) view.contentDOM.blur();
+    status = editableState ? 'editable; tap text to focus and input' : 'read-only; finger selection should not raise keyboard';
+    return result();
+  },
+  inputCheck(marker) {
+    ok = loaded && view.state.doc.toString() === original + marker;
+    status = 'checking actual input against original plus supplied marker';
+    return result({ check: ok });
+  },
+  check() {
+    ok = loaded && view.state.doc.toString() === original;
+    status = ok ? 'original text exact match' : 'text differs from original';
+    return result({ check: ok });
+  },
+  select(all) {
+    const boundary = Math.min(3000, Math.floor(view.state.doc.length / 2));
+    const from = all ? 0 : Math.max(0, boundary - 5);
+    const to = all ? view.state.doc.length : Math.min(view.state.doc.length, boundary + 5);
+    view.dispatch({ selection: EditorSelection.single(from, to), scrollIntoView: true });
+    status = all ? 'model full selection; inspect native handles manually' : 'model selection across position 3000';
+    return result();
+  },
+  editCheck() {
+    if (!loaded || view.composing) { ok = false; status = 'load first; finish IME composition'; return result({ check: false }); }
+    const before = view.state.doc.toString();
+    const from = Math.max(0, Math.min(2995, before.length - 10));
+    const to = Math.min(before.length, from + 10);
+    const inserted = '实验🙂e\u0301\n';
+    view.dispatch({ changes: { from, to, insert: inserted }, selection: { anchor: from + inserted.length } });
+    const replaced = view.state.doc.toString() === before.slice(0, from) + inserted + before.slice(to);
+    const undone = undo(view) && view.state.doc.toString() === before;
+    const redone = redo(view) && view.state.doc.toString() === before.slice(0, from) + inserted + before.slice(to);
+    const restored = undo(view) && view.state.doc.toString() === before;
+    ok = replaced && undone && redone && restored;
+    status = 'transaction replace / undo / redo / restore; not IME or clipboard validation';
+    return result({ check: ok, replaced, undone, redone, restored });
+  },
+  undoLast() {
+    const before = view.state.doc.length;
+    const undone = undo(view);
+    status = undone ? `undo applied; length ${before} -> ${view.state.doc.length}` : 'nothing to undo';
+    return result({ undone });
+  },
+  redoLast() {
+    const before = view.state.doc.length;
+    const redone = redo(view);
+    status = redone ? `redo applied; length ${before} -> ${view.state.doc.length}` : 'nothing to redo';
+    return result({ redone });
+  },
+  insertImage(dataUri, width, height) {
+    const id = `demo-${Date.now()}`;
+    const src = typeof dataUri === 'string' && dataUri.startsWith('data:image/') ? dataUri : imageData;
+    return this.insertImageBlock(id, src, width, height, false, '');
+  },
+  jump(fraction) {
+    const position = Math.round(view.state.doc.length * Math.max(0, Math.min(1, fraction)));
+    const start = performance.now();
+    jumpTarget = position;
+    jumpMs = null;
+    view.dispatch({ selection: { anchor: position }, effects: EditorView.scrollIntoView(position, { y: 'center' }) });
+    requestAnimationFrame(() => requestAnimationFrame(() => {
+      const coords = view.coordsAtPos(jumpTarget);
+      const box = view.scrollDOM.getBoundingClientRect();
+      jumpMs = Math.round((performance.now() - start) * 10) / 10;
+      jumpVisible = !!coords && coords.top >= box.top - 1 && coords.bottom <= box.bottom + 1;
+      result();
+    }));
+    status = 'jump requested; call snapshot after layout';
+    return result();
+  }
+};
+window.addEventListener('error', event => { statusElement.textContent = 'ERROR: ' + event.message; });
+result();

@@ -1,6 +1,5 @@
-// 初始化笔记存储与主窗口，并处理桌面卡片启动请求。
-import { initializeDesktopRepository } from '../repository/DesktopNoteRepository';
-import { syncDesktopNotes } from '../repository/NoteRepository';
+// 初始化笔记数据库与主窗口，并处理桌面卡片启动请求。
+import { initializeNoteRepository, refreshNotes } from '../repository/NoteRepository';
 import { desktopLaunchNoteId } from '../platform/NoteLaunch';
 import { SystemBarInitResult, SystemBars } from '../platform/SystemBars';
 import { AbilityConstant, ConfigurationConstant, UIAbility, Want } from '@kit.AbilityKit';
@@ -11,8 +10,6 @@ const DOMAIN = 0x0000;
 
 export default class EntryAbility extends UIAbility {
   private receiveWant(want: Want): void {
-    initializeDesktopRepository(this.context.filesDir);
-    syncDesktopNotes();
     AppStorage.setOrCreate('desktopLaunchNoteId', desktopLaunchNoteId(want));
   }
 
@@ -40,7 +37,12 @@ export default class EntryAbility extends UIAbility {
     });
   }
 
-  onWindowStageCreate(windowStage: window.WindowStage): void {
+  async onWindowStageCreate(windowStage: window.WindowStage): Promise<void> {
+    try {
+      await initializeNoteRepository(this.context);
+    } catch (error) {
+      hilog.error(DOMAIN, 'testTag', 'Note repository initialization failed: %{public}s', String(error));
+    }
     // Main window is created, set main page for this ability
     hilog.info(DOMAIN, 'testTag', '%{public}s', 'Ability onWindowStageCreate');
     SystemBars.initialize(windowStage)
@@ -66,13 +68,11 @@ export default class EntryAbility extends UIAbility {
   }
 
   onForeground(): void {
-    syncDesktopNotes();
-    // Ability has brought to foreground
+    refreshNotes().catch(() => {});
     hilog.info(DOMAIN, 'testTag', '%{public}s', 'Ability onForeground');
   }
 
   onBackground(): void {
-    // Ability has back to background
     hilog.info(DOMAIN, 'testTag', '%{public}s', 'Ability onBackground');
   }
 }

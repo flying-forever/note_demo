@@ -81,6 +81,8 @@ function fixture() {
     pickingImage: false, editing: false, params: { id: 'A', group: '旅途' }, original: note('A'),
     selectedGroup: '旅途', skinId: 'white',
     applyBarStyle: () => {},
+    scheduleDraftSave: () => {},
+    releaseImages: async items => events.push({ kind: 'release', ids: Array.from(items, item => item.id) }),
     getUIContext: () => ({
       getHostContext: () => ({ filesDir: '/private' }),
       getPromptAction: () => ({
@@ -94,6 +96,8 @@ function fixture() {
   const environment = {
     $r: value => value,
     listNotes: () => [],
+    deleteDraftRecord: async () => {},
+    loadStoredNote: async () => undefined,
     releaseUnusedImages: items => events.push({ kind: 'release', ids: Array.from(items, item => item.id) }),
     saveNoteDraft: request => { saves.push(request); return result; },
     importNoteImage: () => { imports++; return imported.promise; },

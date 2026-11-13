@@ -28,10 +28,22 @@ export const DEMO_CATALOG: DemoEntry[] = [
     route: 'pages/DatabaseDemo'
   },
   {
+    id: 'note-store',
+    title: '正式笔记库自检',
+    description: '计数、块往返、版本递增、墓碑与清理；写入一条临时笔记后删除。',
+    route: 'pages/NoteStoreDemo'
+  },
+  {
     id: 'native-editor',
     title: '原生跨片段编辑',
     description: '单个 RichEditor：跨片段选区、全选、删除及原生复制粘贴。全量加载对照。',
     route: 'pages/NativeEditorDemo'
+  },
+  {
+    id: 'web-editor',
+    title: 'Web 长文编辑对照',
+    description: '离线 CodeMirror：全文模型、视口渲染与输入试验。不接入正式数据。',
+    route: 'pages/WebEditorDemo'
   }
 ];
 

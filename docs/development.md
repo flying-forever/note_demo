@@ -64,6 +64,10 @@ node scripts/test-privacy-editor-refresh.cjs
 
 设备自动化脚本在 scripts/validate-*.cjs。运行前阅读脚本的入口与参数，确保已打开对应页面。真机由一个协调者串行使用，不并行安装、导航或输入。当前行为与待验项以[项目进度](progress.md)为准；实验专用操作见[技术实验现状](technical-demos.md)。
 
+Web 长文对照入口为首页长按设置 → 技术实验室 → Web 长文编辑对照。`node scripts/validate-web-editor-demo.cjs` 检查四种文字场景；`--isolated --paragraphs` 采十万字多段单场景核对前后内存（独立进程需运行前重启应用）；`--input` 增加系统文字注入，不代替中文输入法手验。产物在忽略的 build/verification。离线资源已包含在源码中；用户授权获取材料后可运行 `node scripts/build-web-editor-demo.cjs`，本机已有缓存时用 `--offline` 重打包，无需安装到正式工程依赖。
+
+性能筛查运行 `node scripts/validate-web-editor-performance.cjs --trace`：两种十万字场景各3轮，记录连续手势、可信插入/退格事件、系统trace与内容核对；可用 `--repeat=1` 定向复验、`--paragraphs` 仅测多段。该脚本会重置系统帧诊断计数，但不清应用数据；输出在build/verification。首个手势用trace区分静止与触摸期，原始composer全窗口间隔不能直接判掉帧。Web事件到双动画帧是代理，结论边界见[本轮性能记录](archive/2026-11-12-web-performance-baseline.md)。手验可在实验页先点“开始采样”再点正文，收起键盘后点“结束采样”。
+
 ## 环境与证据管理
 
 - 文档工作或纯注释改动不需要安装、启动设备；必要时只做构建和静态检查。

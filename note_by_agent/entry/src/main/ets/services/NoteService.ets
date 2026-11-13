@@ -1,13 +1,16 @@
 // 统一处理笔记保存、冲突检测、移动、换肤与删除业务。
 import { Note } from '../model/Note';
-import { BodyBlock, NoteImage, documentText, textBlock, copyImage } from '../model/NoteDocument';
-import { findNote, commitNote, removeNote } from '../repository/NoteRepository';
-import { readDesktopRecord } from '../repository/DesktopNoteRepository';
+import { BodyBlock, NoteImage, documentText, copyImage } from '../model/NoteDocument';
+import { commitNote, commitNoteChecked, removeNote, updateNoteMeta } from '../repository/NoteRepository';
+import { loadStoredNote, StoredNoteRecord, deletePosition, listReferencedImagePaths, noteAttachmentPaths } from '../repository/NoteSqlRepository';
+import { releaseAttachmentFile } from '../platform/NoteAttachments';
+import { deleteDraftsForNote } from '../repository/DraftRepository';
 import { refreshDesktopCards } from '../platform/DesktopCards';
 
 export interface NoteEditorParams {
   id: string;
   group: string;
+  draftId?: string;
 }
 
 export interface NoteSaveRequest {
@@ -19,6 +22,7 @@ export interface NoteSaveRequest {
   skinId?: string;
   expectedSnapshot?: string;
   persistToDesktop?: boolean;
+  textOnly?: boolean;
 }
 
 export interface NoteSaveResult {
@@ -41,25 +45,26 @@ export function isBlankNote(title: string, blocks: BodyBlock[]): boolean {
   return !title.trim() && !documentText(blocks).trim() && !blocks.some((block: BodyBlock) => block.imageId !== '');
 }
 
-function currentNote(id: string): NoteSaveResult {
-  const record = readDesktopRecord(id);
-  if (record?.deleted) {
-    return { status: 'deleted' };
-  }
-  const note = record?.note ?? findNote(id);
-  return note ? { status: 'saved', note: note } : { status: 'deleted' };
-}
-
-export function saveNoteDraft(request: NoteSaveRequest): NoteSaveResult {
+export async function saveNoteDraft(request: NoteSaveRequest): Promise<NoteSaveResult> {
   try {
+    if (request.textOnly && (request.images.length > 0 ||
+      request.blocks.some((block: BodyBlock) => block.imageId !== ''))) {
+      return { status: 'unsupported' };
+    }
     let original: Note | undefined;
+    let baseRevision: number = 0;
     if (request.id !== '') {
-      const current = currentNote(request.id);
-      if (current.status !== 'saved') {
-        return current;
+      const stored: StoredNoteRecord | undefined = await loadStoredNote(request.id);
+      if (!stored) {
+        return { status: 'deleted' };
       }
-      original = current.note;
-      const expected = request.expectedSnapshot ?? snapshotNote(findNote(request.id));
+      original = stored.note;
+      baseRevision = stored.revision;
+      if (request.textOnly && ((original.images ?? []).length > 0 ||
+        (original.blocks ?? []).some((block: BodyBlock) => block.imageId !== ''))) {
+        return { status: 'unsupported' };
+      }
+      const expected: string = request.expectedSnapshot ?? snapshotNote(original);
       if (snapshotNote(original) !== expected) {
         return { status: 'conflict' };
       }
@@ -81,18 +86,28 @@ export function saveNoteDraft(request: NoteSaveRequest): NoteSaveResult {
       skinId: request.skinId ?? original?.skinId ?? 'white',
       timeLabel: `${now.getMonth() + 1}月${now.getDate()}日 ${now.getHours().toString().padStart(2, '0')}:${now.getMinutes().toString().padStart(2, '0')}`
     };
-    commitNote(note, request.persistToDesktop ?? false);
-    refreshDesktopCards(note.id);
-    return { status: 'saved', note: note };
+    const persistToDesktop: boolean = request.persistToDesktop ?? false;
+    let saved: Note;
+    if (original) {
+      const outcome = await commitNoteChecked(note, baseRevision, persistToDesktop);
+      if (outcome.status !== 'saved' || !outcome.note) {
+        return { status: outcome.status };
+      }
+      saved = outcome.note;
+    } else {
+      saved = await commitNote(note, persistToDesktop);
+    }
+    refreshDesktopCards(saved.id).catch(() => {});
+    return { status: 'saved', note: saved };
   } catch {
     return { status: 'storageError' };
   }
 }
 
-export function saveNote(params: NoteEditorParams, title: string, content: string, skinId?: string,
-  blocks?: BodyBlock[], images?: NoteImage[]): Note {
-  const result = saveNoteDraft({ id: params.id, group: params.group, title: title,
-    blocks: blocks ?? [textBlock(content)], images: images ?? [], skinId: skinId });
+export async function saveNote(params: NoteEditorParams, title: string, content: string, skinId?: string,
+  blocks?: BodyBlock[], images?: NoteImage[]): Promise<Note> {
+  const result: NoteSaveResult = await saveNoteDraft({ id: params.id, group: params.group, title: title,
+    blocks: blocks ?? [{ id: `block-${Date.now()}-0`, text: content, imageId: '' }], images: images ?? [], skinId: skinId });
   if (result.status !== 'saved' || !result.note) {
     throw new Error(result.status);
   }
@@ -100,39 +115,46 @@ export function saveNote(params: NoteEditorParams, title: string, content: strin
   return result.note;
 }
 
-function updateMetadata(id: string, group?: string, skinId?: string): NoteSaveResult {
+async function updateMetadata(id: string, group?: string, skinId?: string): Promise<NoteSaveResult> {
   try {
-    const current = currentNote(id);
-    if (current.status !== 'saved' || !current.note) {
-      return current;
+    const updated: Note | undefined = await updateNoteMeta(id, group, skinId);
+    if (!updated) {
+      return { status: 'deleted' };
     }
-    const original = current.note;
-    const note: Note = { id: original.id, title: original.title, content: original.content,
-      timeLabel: original.timeLabel, group: group ?? original.group, skinId: skinId ?? original.skinId,
-      blocks: original.blocks, images: original.images };
-    commitNote(note, false, false);
-    refreshDesktopCards(id);
-    return { status: 'saved', note: note };
+    refreshDesktopCards(id).catch(() => {});
+    return { status: 'saved', note: updated };
   } catch {
     return { status: 'storageError' };
   }
 }
 
-export function moveNote(id: string, group: string): void {
-  const result = updateMetadata(id, group);
-  if (result.status === 'storageError') {
+export async function moveNote(id: string, group: string): Promise<void> {
+  const result: NoteSaveResult = await updateMetadata(id, group);
+  if (result.status !== 'saved') {
     throw new Error(result.status);
   }
 }
 
-export function changeNoteSkin(id: string, skinId: string): void {
-  const result = updateMetadata(id, undefined, skinId);
-  if (result.status === 'storageError') {
+export async function changeNoteSkin(id: string, skinId: string): Promise<void> {
+  const result: NoteSaveResult = await updateMetadata(id, undefined, skinId);
+  if (result.status !== 'saved') {
     throw new Error(result.status);
   }
 }
 
-export function deleteNote(id: string): void {
-  removeNote(id);
-  refreshDesktopCards(id);
+export async function deleteNote(id: string): Promise<void> {
+  const paths: string[] = await noteAttachmentPaths(id);
+  await deleteDraftsForNote(id);
+  await removeNote(id);
+  await deletePosition(id);
+  try {
+    const referenced: string[] = await listReferencedImagePaths();
+    paths.forEach((path: string) => {
+      if (!referenced.includes(path)) {
+        releaseAttachmentFile(path);
+      }
+    });
+  } catch {
+  }
+  refreshDesktopCards(id).catch(() => {});
 }
