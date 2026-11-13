@@ -1,12 +1,15 @@
 // 提供长文正式外壳：路由读笔记、草稿恢复、标题输入、CodeMirror 正文、实时字数与块级位置。
 import { webview } from '@kit.ArkWeb';
+import { photoAccessHelper } from '@kit.MediaLibraryKit';
+import { common } from '@kit.AbilityKit';
 import { Note } from '../model/Note';
 import { BodyBlock, NoteImage, documentText, textBlock } from '../model/NoteDocument';
 import { NoteEditorParams, NoteSaveResult, isBlankNote, saveNoteDraft, snapshotNote } from '../services/NoteService';
 import { DraftRecord, deleteDraftRecord, findDraftForNote, saveDraftRecord } from '../repository/DraftRepository';
 import { StoredPosition, loadPosition, loadStoredNote, savePosition } from '../repository/NoteSqlRepository';
 import { NoteEditorSession } from '../viewmodel/NoteEditorSession';
-import { mergeTextBlocks } from '../viewmodel/WebDocument';
+import { mergeWebBlocks, webImageIdsOf, webTextOf } from '../viewmodel/WebDocument';
+import { ensureThumbnail, importNoteImage, thumbnailDataUrl, thumbnailPath } from '../platform/NoteAttachments';
 
 const HEADER_HEIGHT: number = 56;
 const TITLE_FONT_SIZE: number = 20;
@@ -24,10 +27,20 @@ interface WebStats {
 
 interface WebText {
   text: string;
+  imageIds: string[];
+}
+
+interface WebImagePayload {
+  id: string;
+  src: string;
+  width: number;
+  height: number;
+  small: boolean;
+  caption: string;
 }
 
 function textCount(text: string): number {
-  return Array.from(text.replace(/\s/g, '')).length;
+  return Array.from(text.split('\uFFFC').join('').replace(/\s/g, '')).length;
 }
 
 @Entry
@@ -46,9 +59,12 @@ struct NoteEditorWeb {
   private blockIds: string[] = [];
   private lineBlockIds: string[] = [];
   private initialText: string = '';
+  private initialImages: WebImagePayload[] = [];
+  private initialImageIds: string[] = [];
   private initialLine: number = 1;
   private activeLine: number = 1;
   private loadedLength: number = -1;
+  private pickingImage: boolean = false;
   private draftId: string = '';
   private draftCreatedAt: number = 0;
   private draftTimer: number = -1;
@@ -93,30 +109,53 @@ struct NoteEditorWeb {
     this.blockIds = (note.blocks ?? []).map((block: BodyBlock) => block.id);
     this.refreshLineBlockIds();
     this.charCount = textCount(documentText(note.blocks ?? []));
-    if (this.hasImages(note)) {
-      this.getUIContext().getPromptAction().showToast({ message: '含图笔记暂不支持长文外壳' });
-      this.getUIContext().getRouter().back();
-      return;
-    }
     await this.loadPosition();
     await this.resolveDraft(stored.revision);
     if (this.disposed) {
       return;
     }
-    if (this.session.hasImages()) {
-      this.getUIContext().getPromptAction().showToast({ message: '草稿含图片，暂不支持长文外壳' });
-      this.getUIContext().getRouter().back();
-      return;
-    }
     await this.loadPosition();
-    this.initialText = documentText(this.session.blocks);
+    this.initialText = webTextOf(this.session.blocks);
+    this.initialImageIds = webImageIdsOf(this.session.blocks);
     this.blockIds = this.session.blocks.map((block: BodyBlock) => block.id);
+    await this.buildImagePayloads();
+    this.charCount = textCount(this.initialText);
     this.hasDocument = true;
     this.tryStart();
   }
 
-  private hasImages(note: Note): boolean {
-    return (note.images ?? []).length > 0 || (note.blocks ?? []).some((block: BodyBlock) => block.imageId !== '');
+  private async buildImagePayloads(): Promise<void> {
+    const payloads: WebImagePayload[] = [];
+    for (const block of this.session.blocks) {
+      if (block.imageId === '') {
+        continue;
+      }
+      const image: NoteImage | undefined = this.session.images.find((item: NoteImage) => item.id === block.imageId);
+      if (image === undefined) {
+        payloads.push({ id: block.imageId, src: '', width: 320, height: 200, small: false, caption: '' });
+        continue;
+      }
+      let thumb: string = thumbnailPath(image.path);
+      if (thumb === '' || !(await this.ensureImageThumb(image.path))) {
+        thumb = '';
+      }
+      payloads.push({ id: image.id, src: thumb !== '' ? thumbnailDataUrl(thumb) : '',
+        width: image.width, height: image.height, small: image.small, caption: image.caption });
+    }
+    this.initialImages = payloads;
+  }
+
+  private async ensureImageThumb(path: string): Promise<boolean> {
+    try {
+      const thumb: string = thumbnailPath(path);
+      if (thumb === '') {
+        return false;
+      }
+      await ensureThumbnail(path);
+      return true;
+    } catch {
+      return false;
+    }
   }
 
   private refreshLineBlockIds(): void {
@@ -193,8 +232,19 @@ struct NoteEditorWeb {
     this.title = draft.title;
     this.blockIds = blocks.map((block: BodyBlock) => block.id);
     this.refreshLineBlockIds();
-    this.initialText = documentText(blocks);
+    this.initialText = webTextOf(blocks);
+    this.initialImageIds = webImageIdsOf(blocks);
     this.charCount = textCount(this.initialText);
+  }
+
+  private async pushImages(): Promise<void> {
+    await this.controller.runJavaScript('window.noteProbe.beginImages()');
+    for (const image of this.initialImages) {
+      await this.controller.runJavaScript(`window.noteProbe.putImage(${JSON.stringify(image.id)},` +
+        `${JSON.stringify(image.src)},${image.width},${image.height},${image.small},` +
+        `${JSON.stringify(image.caption)})`);
+    }
+    await this.controller.runJavaScript('window.noteProbe.endImages()');
   }
 
   private async tryStart(): Promise<void> {
@@ -204,6 +254,7 @@ struct NoteEditorWeb {
     this.started = true;
     try {
       await this.controller.runJavaScript(`window.noteProbe.load(${JSON.stringify(this.initialText)})`);
+      await this.pushImages();
       const stats: WebStats = await this.readStats();
       if (stats.length !== this.initialText.length) {
         this.ready = false;
@@ -290,8 +341,8 @@ struct NoteEditorWeb {
     return value as WebStats;
   }
 
-  private async readEditorText(): Promise<string> {
-    const raw: string = await this.controller.runJavaScript('window.noteProbe.getText()');
+  private async readEditorText(): Promise<WebText> {
+    const raw: string = await this.controller.runJavaScript('window.noteProbe.getDocument()');
     let value: Object = JSON.parse(raw) as Object;
     if (typeof value === 'string') {
       const nested: string = value as string;
@@ -300,19 +351,21 @@ struct NoteEditorWeb {
       }
     }
     const payload: WebText = value as WebText;
-    if (typeof payload.text !== 'string') {
-      throw new Error('Invalid web text payload');
+    if (typeof payload.text !== 'string' || !Array.isArray(payload.imageIds)) {
+      throw new Error('Invalid web document payload');
     }
-    return payload.text;
+    return payload;
   }
 
-  private applyEditorText(text: string): void {
-    const blocks: BodyBlock[] = mergeTextBlocks(this.session.blocks, text.split('\n'));
+  private applyEditorText(document: WebText): void {
+    const lines: string[] = document.text.split('\n');
+    const blocks: BodyBlock[] = mergeWebBlocks(this.session.blocks, lines, document.imageIds);
     this.session.blocks = blocks;
     this.session.content = documentText(blocks);
     this.blockIds = blocks.map((block: BodyBlock) => block.id);
     this.refreshLineBlockIds();
-    this.initialText = text;
+    this.initialText = document.text;
+    this.initialImageIds = document.imageIds;
   }
 
   private async persistDraft(): Promise<void> {
@@ -326,8 +379,8 @@ struct NoteEditorWeb {
     this.draftSaving = true;
     const epoch: number = this.draftEpoch;
     try {
-      const text: string = await this.readEditorText();
-      this.applyEditorText(text);
+      const document: WebText = await this.readEditorText();
+      this.applyEditorText(document);
       const blocks: BodyBlock[] = this.session.blocks;
       if (!this.session.isDirty()) {
         await deleteDraftRecord(this.draftId);
@@ -380,12 +433,12 @@ struct NoteEditorWeb {
       const stats: WebStats = await this.readStats();
       this.charCount = stats.count;
       this.activeLine = Math.max(1, stats.activeLine);
-      const text: string = await this.readEditorText();
-      if (this.loadedLength > 0 && text.length === 0 && !this.session.isDirty()) {
+      const document: WebText = await this.readEditorText();
+      if (this.loadedLength > 0 && document.text.length === 0 && !this.session.isDirty()) {
         this.status = '正文未加载，不能保存';
         return false;
       }
-      this.applyEditorText(text);
+      this.applyEditorText(document);
       const blocks: BodyBlock[] = this.session.blocks;
       if (!this.session.isDirty()) {
         await deleteDraftRecord(this.draftId);
@@ -399,8 +452,7 @@ struct NoteEditorWeb {
         blocks: blocks,
         images: this.session.referencedImages(),
         skinId: this.original?.skinId ?? 'white',
-        expectedSnapshot: snapshotNote(this.original),
-        textOnly: true
+        expectedSnapshot: snapshotNote(this.original)
       });
       if (result.status === 'saved' && result.note) {
         this.original = result.note;
@@ -471,6 +523,39 @@ struct NoteEditorWeb {
     try {
       await this.controller.runJavaScript(`window.noteProbe.${redo ? 'redoLast' : 'undoLast'}()`);
     } catch {
+    }
+  }
+
+  private async insertImage(): Promise<void> {
+    if (this.pickingImage || !this.ready || this.disposed) {
+      return;
+    }
+    this.pickingImage = true;
+    try {
+      const options = new photoAccessHelper.PhotoSelectOptions();
+      options.MIMEType = photoAccessHelper.PhotoViewMIMETypes.IMAGE_TYPE;
+      options.maxSelectNumber = 1;
+      const result = await new photoAccessHelper.PhotoViewPicker().select(options);
+      if (result.photoUris.length === 0 || this.disposed) {
+        return;
+      }
+      const context = this.getUIContext().getHostContext() as common.UIAbilityContext;
+      const item: NoteImage = await importNoteImage(context.filesDir, result.photoUris[0]);
+      let src: string = '';
+      const thumb: string = thumbnailPath(item.path);
+      if (thumb !== '' && await this.ensureImageThumb(item.path)) {
+        src = thumbnailDataUrl(thumb);
+      }
+      this.session.images = [...this.session.images, item];
+      this.initialImages.push({ id: item.id, src: src, width: item.width, height: item.height,
+        small: item.small, caption: item.caption });
+      await this.controller.runJavaScript(`window.noteProbe.insertImageBlock(${JSON.stringify(item.id)},` +
+        `${JSON.stringify(src)},${item.width},${item.height},${item.small},${JSON.stringify(item.caption)})`);
+      this.scheduleDraftSave();
+    } catch {
+      this.getUIContext().getPromptAction().showToast({ message: '无法插入图片，请重新选择' });
+    } finally {
+      this.pickingImage = false;
     }
   }
 
@@ -557,6 +642,12 @@ struct NoteEditorWeb {
             this.session.changeTitle(value, false);
             this.scheduleDraftSave();
           })
+        Button('图')
+          .width(36)
+          .height(44)
+          .backgroundColor(Color.Transparent)
+          .fontColor($r('app.color.text_secondary'))
+          .onClick(() => { this.insertImage(); })
         Button('↶')
           .width(36)
           .height(44)

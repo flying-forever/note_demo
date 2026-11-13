@@ -74,6 +74,67 @@ export function hasImageBlocks(blocks: BodyBlock[]): boolean {
   return blocks.some((block: BodyBlock) => block.imageId !== '');
 }
 
+function flattenTextBlocks(blocks: BodyBlock[]): BodyBlock[] {
+  const result: BodyBlock[] = [];
+  for (const block of blocks) {
+    if (block.imageId !== '') {
+      continue;
+    }
+    const lines: string[] = block.text.split('\n');
+    for (let index: number = 0; index < lines.length; index++) {
+      result.push({ id: index === 0 ? block.id : `${block.id}#${index}`, text: lines[index], imageId: '' } as BodyBlock);
+    }
+  }
+  return result;
+}
+
+export function webTextOf(blocks: BodyBlock[]): string {
+  return blocks.map((block: BodyBlock) => block.imageId !== '' ? '\uFFFC' : block.text).join('\n');
+}
+
+export function webImageIdsOf(blocks: BodyBlock[]): string[] {
+  const result: string[] = [];
+  for (const block of blocks) {
+    if (block.imageId !== '') {
+      result.push(block.imageId);
+    } else {
+      const lines: string[] = block.text.split('\n');
+      for (let index: number = 0; index < lines.length; index++) {
+        result.push('');
+      }
+    }
+  }
+  return result;
+}
+
+export function mergeWebBlocks(blocks: BodyBlock[], lines: string[], imageIds: string[]): BodyBlock[] {
+  if (lines.length !== imageIds.length) {
+    throw new Error('image lines mismatch');
+  }
+  const oldTextBlocks: BodyBlock[] = flattenTextBlocks(blocks);
+  const newTextLines: string[] = [];
+  for (let index: number = 0; index < lines.length; index++) {
+    if (imageIds[index] === '') {
+      newTextLines.push(lines[index]);
+    }
+  }
+  const mergedText: BodyBlock[] = mergeTextBlocks(oldTextBlocks, newTextLines);
+  const oldImageBlocks: BodyBlock[] = blocks.filter((block: BodyBlock) => block.imageId !== '');
+  const result: BodyBlock[] = [];
+  let textIndex: number = 0;
+  for (let index: number = 0; index < lines.length; index++) {
+    const imageId: string = imageIds[index];
+    if (imageId !== '') {
+      const old: BodyBlock | undefined = oldImageBlocks.find((block: BodyBlock) => block.imageId === imageId);
+      result.push({ id: old?.id ?? imageId, text: '', imageId: imageId } as BodyBlock);
+    } else {
+      const block: BodyBlock = mergedText[textIndex++];
+      result.push({ id: block.id, text: lines[index], imageId: '' } as BodyBlock);
+    }
+  }
+  return result;
+}
+
 export function mergeTextBlocks(blocks: BodyBlock[], lines: string[]): BodyBlock[] {
   if (hasImageBlocks(blocks)) {
     throw new Error('image blocks are not supported by the text-only web editor');

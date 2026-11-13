@@ -18,7 +18,7 @@
 | repository/DesktopNoteRepository | filesDir/desktop-notes下版本化记录、墓碑及form关联；不依赖FormKit |
 | platform | NoteAttachments管私有附件与派生缩略图，NoteShare管系统分享，DesktopCards管配色/刷新，NoteLaunch管启动解析，NoteTextHitTest管原生排版命中 |
 | components | 展示、皮肤背景/选择和图片描述；动态组件持有各自动画生命周期 |
-| pages/NoteEditorWeb | 长文外壳的标题、Web 控制器、原笔记快照、800ms 草稿、实时字数、块级位置与保存/返回生命周期；正文状态由 CodeMirror 持有 |
+| pages/NoteEditorWeb | 长文外壳的标题、Web 控制器、原笔记快照、800ms 草稿、实时字数、块级位置、图片 data URL 映射与保存/返回生命周期；正文状态由 CodeMirror 持有 |
 | pages/DesktopNoteEdit | 每个半模态独立title/blocks草稿、原快照、状态和预览timer；并未使用NoteEditorSession |
 | entryability / entryformability / entryformeditability | 主Ability启动和前台同步、卡片生命周期、独立半模态会话注入 |
 
@@ -30,7 +30,7 @@
 
 首页onPageShow → refreshNotes 从 notes.db 重载摘要缓存 → listNotes → 筛选和双列展示。缓存只含标题、摘要与元信息，是同步读模型，数据库是权威存储；旧桌面 JSON 仅保留为卡片投影和回退。
 
-打开主编辑 → aboutToAppear 按 ID 从数据库加载整篇 → session.load复制草稿并初始化历史 → 输入更新session并约800ms写`drafts` → 离页先冲刷草稿再saveNoteDraft（异步）。业务层从数据库读取最新笔记与 revision，比对固定字段顺序snapshotNote后条件更新，返回saved/empty/conflict/deleted/storageError。事务内更新notes与blocks，提交后更新摘要缓存；随后平台刷新卡片，卡片刷新失败不回滚已保存笔记。正文保存前置，元数据更新保持顺序且不改变首页排序。已有笔记移动和换肤立即提交元数据，新草稿首次保存携带。打开已有笔记发现草稿时提示恢复或忽略，`base_revision` 不一致时提示旧版本。主编辑「更多 → 长文编辑」先把当前页保存，再按 ID 打开 `NoteEditorWeb`：读块用换行拼整篇交给 CodeMirror，标题用原生输入，返回时取回全文按带权对齐复用原块 ID，经同一 `saveNoteDraft` 写库；含图笔记拒绝进入。旧主编辑页仍保留，二者尚未共享 UI 外壳。Web 外壳已在页面可见时定时取字数、约 800ms 写草稿并冲刷，打开时按 `positions.edit_block_id` 定位到块；拆合块边界、撤销分组和真实粘贴仍待验，4b 再处理图片、精确偏移与 10 万字。
+打开主编辑 → aboutToAppear 按 ID 从数据库加载整篇 → session.load复制草稿并初始化历史 → 输入更新session并约800ms写`drafts` → 离页先冲刷草稿再saveNoteDraft（异步）。业务层从数据库读取最新笔记与 revision，比对固定字段顺序snapshotNote后条件更新，返回saved/empty/conflict/deleted/storageError。事务内更新notes与blocks，提交后更新摘要缓存；随后平台刷新卡片，卡片刷新失败不回滚已保存笔记。正文保存前置，元数据更新保持顺序且不改变首页排序。已有笔记移动和换肤立即提交元数据，新草稿首次保存携带。打开已有笔记发现草稿时提示恢复或忽略，`base_revision` 不一致时提示旧版本。主编辑「更多 → 长文编辑」先把当前页保存，再按 ID 打开 `NoteEditorWeb`：读块用换行拼整篇交给 CodeMirror，标题用原生输入，返回时取回全文按带权对齐复用原块 ID，经同一 `saveNoteDraft` 写库；旧含图笔记用缩略图 data URL 和 `\uFFFC` 占位块显示，新图插入/浮层尚未验收。旧主编辑页仍保留，二者尚未共享 UI 外壳。Web 外壳已在页面可见时定时取字数、约 800ms 写草稿并冲刷，打开时按 `positions.edit_block_id` 定位到块；拆合块边界、撤销分组和真实粘贴仍待验，4b 再处理新图插入、精确偏移与 10 万字。
 
 进入桌面预览 → persistToDesktop保存完整Note到数据库，并写桌面JSON投影供卡片同步读取 → AddFormMenuItem → form关联。每个formId为string，允许多卡对应一笔记。移除只删关联；删除已持久笔记写数据库墓碑和JSON墓碑并刷新删除状态。UIAbility和扩展共享数据库文件与私有目录，不能靠模块单例跨进程通信。
 

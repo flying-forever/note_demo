@@ -1,6 +1,7 @@
 // 导入图片到应用私有目录并读取元数据，生成可重建缩略图，清理不再被任何笔记引用的附件。
 import { fileIo as fs } from '@kit.CoreFileKit';
 import { image } from '@kit.ImageKit';
+import { util } from '@kit.ArkTS';
 import { NoteImage } from '../model/NoteDocument';
 
 const IMAGE_DIRECTORY: string = '/note-images';
@@ -70,6 +71,36 @@ export async function ensureThumbnail(path: string): Promise<string> {
   } catch (error) {
     try { fs.unlinkSync(temporary); } catch {}
     return path;
+  }
+}
+
+const THUMB_DATA_LIMIT: number = 256 * 1024;
+
+export function thumbnailDataUrl(path: string): string {
+  try {
+    if (path === '' || !path.endsWith(THUMB_SUFFIX) || !fs.accessSync(path)) {
+      return '';
+    }
+    const size: number = fs.statSync(path).size;
+    if (size <= 0 || size > THUMB_DATA_LIMIT) {
+      return '';
+    }
+    const buffer: ArrayBuffer = new ArrayBuffer(size);
+    const file = fs.openSync(path, fs.OpenMode.READ_ONLY);
+    let read: number = 0;
+    try {
+      read = fs.readSync(file.fd, buffer);
+    } finally {
+      fs.closeSync(file);
+    }
+    if (read <= 0) {
+      return '';
+    }
+    const bytes: Uint8Array = new Uint8Array(buffer).subarray(0, read);
+    const base64: string = new util.Base64Helper().encodeToStringSync(bytes);
+    return `data:image/jpeg;base64,${base64}`;
+  } catch {
+    return '';
   }
 }
 

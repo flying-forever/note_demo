@@ -20,14 +20,19 @@ let jumpMs = null;
 let jumpVisible = null;
 let jumpTarget = 0;
 const insertImageEffect = StateEffect.define();
+const refreshImagesEffect = StateEffect.define();
 const imagePlaceholder = '\uFFFC';
 const imageData = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==';
+const imageSources = new Map();
+const imageMeta = new Map();
+let documentImageIds = [];
+let pendingImageIds = [];
 let blockCounts = [];
+function countText(text) {
+  return Array.from(text.replace(/\uFFFC/g, '').replace(/\s/g, '')).length;
+}
 let docVersion = 0;
 let activeLine = 1;
-function countText(text) {
-  return Array.from(text.replace(/\s/g, '')).length;
-}
 function rebuildBlockCounts() {
   blockCounts = view.state.doc.toString().split('\n').map(countText);
 }
@@ -66,33 +71,79 @@ function updateBlockCounts(update) {
   if (blockCounts.length !== newLines) rebuildBlockCounts();
 }
 class ImageBlock extends WidgetType {
-  constructor(image) { super(); this.image = image; }
+  constructor(imageId, image) { super(); this.imageId = imageId; this.image = image; }
   eq(other) {
-    return other.image.src === this.image.src && other.image.width === this.image.width &&
-      other.image.height === this.image.height;
+    return other.imageId === this.imageId && other.image.src === this.image.src &&
+      other.image.width === this.image.width && other.image.height === this.image.height &&
+      other.image.small === this.image.small && other.image.caption === this.image.caption;
   }
   toDOM() {
+    const wrapper = document.createElement('div');
+    wrapper.style.cssText = 'display:block;margin:8px 0;';
     const img = document.createElement('img');
-    img.src = this.image.src;
-    img.alt = '插图试验';
-    img.style.cssText = `display:block;width:${this.image.width}px;height:${this.image.height}px;object-fit:cover;margin:8px 0;border-radius:8px;background:#eee;`;
-    return img;
+    img.src = this.image.src || imageSources.get(this.imageId) || imageData;
+    img.alt = this.image.caption || '笔记图片';
+    const width = this.image.small ? '50%' : '100%';
+    img.style.cssText = `display:block;width:${width};max-height:70vh;object-fit:contain;border-radius:8px;background:#eee;`;
+    wrapper.appendChild(img);
+    if (this.image.caption) {
+      const caption = document.createElement('div');
+      caption.textContent = this.image.caption;
+      caption.style.cssText = 'font-size:13px;color:#666;text-align:center;padding-top:4px;';
+      wrapper.appendChild(caption);
+    }
+    return wrapper;
   }
 }
+function imageFor(id) {
+  const meta = imageMeta.get(id) || {};
+  return { src: imageSources.get(id) || '', width: meta.width || 320, height: meta.height || 200,
+    small: !!meta.small, caption: meta.caption || '' };
+}
+function buildImageDecorations(state) {
+  let deco = Decoration.none;
+  if (documentImageIds.length === 0) return deco;
+  const text = state.doc.toString();
+  let from = 0;
+  let index = 0;
+  while (index < documentImageIds.length) {
+    const position = text.indexOf(imagePlaceholder, from);
+    if (position < 0) break;
+    const id = documentImageIds[index++];
+    const image = imageFor(id);
+    deco = deco.update({ add: [Decoration.replace({ widget: new ImageBlock(id, image) }).range(position, position + 1)] });
+    from = position + 1;
+  }
+  return deco;
+}
 const imageField = StateField.define({
-  create: () => Decoration.none,
+  create: state => buildImageDecorations(state),
   update(deco, transaction) {
     let next = deco.map(transaction.changes).update({ filter: (from, to) => from < to });
     for (const effect of transaction.effects) {
+      if (effect.is(refreshImagesEffect)) {
+        return buildImageDecorations(transaction.state);
+      }
       if (effect.is(insertImageEffect)) {
-        const mark = Decoration.replace({ widget: new ImageBlock(effect.value.image) });
-        next = next.update({ add: [mark.range(effect.value.from, effect.value.from + 1)] });
+        const value = effect.value;
+        const mark = Decoration.replace({ widget: new ImageBlock(value.imageId, value.image) });
+        next = next.update({ add: [mark.range(value.from, value.from + 1)] });
       }
     }
     return next;
   },
   provide: field => EditorView.decorations.from(field)
 });
+function syncImageIdsFromField() {
+  const ids = [];
+  const field = view.state.field(imageField);
+  field.between(0, view.state.doc.length, (from, to, value) => {
+    if (value.widget && value.widget.imageId) {
+      ids.push(value.widget.imageId);
+    }
+  });
+  documentImageIds = ids;
+}
 function lineGaps() {
   const rects = [];
   const walker = document.createTreeWalker(view.contentDOM, NodeFilter.SHOW_TEXT);
@@ -133,6 +184,7 @@ const extensions = [EditorView.lineWrapping, history({ newGroupDelay: 1000 }), k
       changes++;
       docVersion++;
       updateBlockCounts(update);
+      syncImageIdsFromField();
       performanceProbe?.changed(update);
       if (pasteStart) {
         const start = pasteStart;
@@ -201,6 +253,7 @@ window.noteProbe = {
     const start = performance.now();
     original = text;
     view.contentDOM.blur();
+    documentImageIds = [];
     view.setState(EditorState.create({ doc: text, extensions }));
     blockCounts = text.split('\n').map(countText);
     docVersion++;
@@ -221,6 +274,50 @@ window.noteProbe = {
   },
   snapshot() { return result(); },
   getText() { return JSON.stringify({ text: view.state.doc.toString() }); },
+  beginImages() {
+    imageSources.clear();
+    imageMeta.clear();
+    pendingImageIds = [];
+    documentImageIds = [];
+    return JSON.stringify({ ok: true });
+  },
+  putImage(id, src, width, height, small, caption) {
+    if (typeof id !== 'string' || id === '') return JSON.stringify({ ok: false });
+    if (typeof src === 'string' && src.startsWith('data:image/')) {
+      imageSources.set(id, src);
+    }
+    imageMeta.set(id, { width: Math.round(Number(width)) || 320, height: Math.round(Number(height)) || 200,
+      small: !!small, caption: typeof caption === 'string' ? caption : '' });
+    pendingImageIds.push(id);
+    return JSON.stringify({ ok: true, count: pendingImageIds.length });
+  },
+  endImages() {
+    documentImageIds = pendingImageIds.slice();
+    view.dispatch({ effects: refreshImagesEffect.of(null) });
+    syncImageIdsFromField();
+    return JSON.stringify({ registered: imageSources.size, placeholders:
+      (view.state.doc.toString().match(/\uFFFC/g) || []).length, ids: documentImageIds.length });
+  },
+  getDocument() {
+    syncImageIdsFromField();
+    return JSON.stringify({ text: view.state.doc.toString(), imageIds: documentImageIds });
+  },
+  insertImageBlock(id, src, width, height, small, caption) {
+    if (!loaded) { ok = false; status = 'load first'; return result({ check: false }); }
+    const selection = view.state.selection.main;
+    const prefix = view.state.doc.sliceString(0, selection.from);
+    const index = (prefix.match(/\uFFFC/g) || []).length;
+    if (typeof src === 'string' && src.startsWith('data:image/')) imageSources.set(id, src);
+    imageMeta.set(id, { width: Math.round(Number(width)) || 320, height: Math.round(Number(height)) || 200,
+      small: !!small, caption: typeof caption === 'string' ? caption : '' });
+    documentImageIds.splice(index, 0, id);
+    const inserted = `\n${imagePlaceholder}\n`;
+    view.dispatch({ changes: { from: selection.from, to: selection.to, insert: inserted },
+      effects: refreshImagesEffect.of(null), selection: { anchor: selection.from + inserted.length } });
+    syncImageIdsFromField();
+    status = 'image placeholder inserted at caret';
+    return result({ images: view.state.field(imageField).size });
+  },
   getStats() {
     return JSON.stringify({ version: docVersion, length: view.state.doc.length, count:
       blockCounts.reduce((total, value) => total + value, 0), lines: view.state.doc.lines, activeLine,
@@ -296,17 +393,9 @@ window.noteProbe = {
     return result({ redone });
   },
   insertImage(dataUri, width, height) {
-    if (!loaded) { ok = false; status = 'load first'; return result({ check: false }); }
-    const selection = view.state.selection.main;
-    const image = {
-      src: typeof dataUri === 'string' && dataUri.startsWith('data:image/') ? dataUri : imageData,
-      width: Math.round(Number(width)) || 200,
-      height: Math.round(Number(height)) || 100
-    };
-    view.dispatch({ changes: { from: selection.from, to: selection.to, insert: imagePlaceholder },
-      effects: insertImageEffect.of({ from: selection.from, image }), selection: { anchor: selection.from + 1 } });
-    status = 'image placeholder inserted at caret';
-    return result({ images: view.state.field(imageField).size });
+    const id = `demo-${Date.now()}`;
+    const src = typeof dataUri === 'string' && dataUri.startsWith('data:image/') ? dataUri : imageData;
+    return this.insertImageBlock(id, src, width, height, false, '');
   },
   jump(fraction) {
     const position = Math.round(view.state.doc.length * Math.max(0, Math.min(1, fraction)));
