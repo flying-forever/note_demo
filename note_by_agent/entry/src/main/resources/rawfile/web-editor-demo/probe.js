@@ -220,7 +220,7 @@ window.noteProbe = {
     return result();
   },
   snapshot() { return result(); },
-  getText() { return JSON.stringify(view.state.doc.toString()); },
+  getText() { return JSON.stringify({ text: view.state.doc.toString() }); },
   getStats() {
     return JSON.stringify({ version: docVersion, length: view.state.doc.length, count:
       blockCounts.reduce((total, value) => total + value, 0), lines: view.state.doc.lines, activeLine,

@@ -60,6 +60,10 @@ export async function saveNoteDraft(request: NoteSaveRequest): Promise<NoteSaveR
       }
       original = stored.note;
       baseRevision = stored.revision;
+      if (request.textOnly && ((original.images ?? []).length > 0 ||
+        (original.blocks ?? []).some((block: BodyBlock) => block.imageId !== ''))) {
+        return { status: 'unsupported' };
+      }
       const expected: string = request.expectedSnapshot ?? snapshotNote(original);
       if (snapshotNote(original) !== expected) {
         return { status: 'conflict' };

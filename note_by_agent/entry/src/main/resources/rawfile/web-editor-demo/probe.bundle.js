@@ -16285,7 +16285,7 @@
       return result();
     },
     getText() {
-      return JSON.stringify(view.state.doc.toString());
+      return JSON.stringify({ text: view.state.doc.toString() });
     },
     getStats() {
       return JSON.stringify({

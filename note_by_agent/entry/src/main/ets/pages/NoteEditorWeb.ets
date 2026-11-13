@@ -22,6 +22,10 @@ interface WebStats {
   editable: boolean;
 }
 
+interface WebText {
+  text: string;
+}
+
 function textCount(text: string): number {
   return Array.from(text.replace(/\s/g, '')).length;
 }
@@ -97,6 +101,11 @@ struct NoteEditorWeb {
     await this.loadPosition();
     await this.resolveDraft(stored.revision);
     if (this.disposed) {
+      return;
+    }
+    if (this.session.hasImages()) {
+      this.getUIContext().getPromptAction().showToast({ message: '草稿含图片，暂不支持长文外壳' });
+      this.getUIContext().getRouter().back();
       return;
     }
     await this.loadPosition();
@@ -283,19 +292,18 @@ struct NoteEditorWeb {
 
   private async readEditorText(): Promise<string> {
     const raw: string = await this.controller.runJavaScript('window.noteProbe.getText()');
-    try {
-      let value: Object = JSON.parse(raw) as Object;
-      if (typeof value === 'string') {
-        const text: string = value as string;
-        if (text.length >= 2 && text.startsWith('"') && text.endsWith('"')) {
-          return JSON.parse(text) as string;
-        }
-        return text;
+    let value: Object = JSON.parse(raw) as Object;
+    if (typeof value === 'string') {
+      const nested: string = value as string;
+      if (nested.startsWith('{')) {
+        value = JSON.parse(nested) as Object;
       }
-      return value as string;
-    } catch {
-      return raw;
     }
+    const payload: WebText = value as WebText;
+    if (typeof payload.text !== 'string') {
+      throw new Error('Invalid web text payload');
+    }
+    return payload.text;
   }
 
   private applyEditorText(text: string): void {
@@ -380,6 +388,7 @@ struct NoteEditorWeb {
       this.applyEditorText(text);
       const blocks: BodyBlock[] = this.session.blocks;
       if (!this.session.isDirty()) {
+        await deleteDraftRecord(this.draftId);
         await this.saveCurrentPosition();
         return true;
       }
@@ -465,9 +474,28 @@ struct NoteEditorWeb {
     }
     this.leaving = true;
     try {
-      if (await this.save()) {
-        this.getUIContext().getRouter().back();
+      while (!this.disposed) {
+        if (await this.save()) {
+          this.getUIContext().getRouter().back();
+          return;
+        }
+        const choice = await this.getUIContext().getPromptAction().showDialog({
+          title: '保存失败',
+          message: this.status,
+          buttons: [{ text: '重试', color: $r('app.color.accent') },
+            { text: '保留草稿并离开', color: $r('app.color.text_primary') }]
+        });
+        if (this.disposed) {
+          return;
+        }
+        if (choice.index === 1) {
+          await this.flushDraft().catch(() => {});
+          this.getUIContext().getRouter().back();
+          return;
+        }
       }
+    } catch {
+      return;
     } finally {
       this.leaving = false;
     }
@@ -491,9 +519,9 @@ struct NoteEditorWeb {
   }
 
   aboutToDisappear(): void {
-    this.disposed = true;
     this.stopPolling();
     clearTimeout(this.draftTimer);
+    this.flushDraft().catch(() => {}).finally(() => { this.disposed = true; });
   }
 
   private countLabel(): string {
@@ -548,7 +576,13 @@ struct NoteEditorWeb {
           this.ready = false;
           this.started = false;
           this.stopPolling();
-          this.status = '长文引擎已重载，正在恢复正文';
+          this.status = '长文引擎已重载，正在保存草稿';
+          this.flushDraft().catch(() => {}).finally(() => {
+            try {
+              this.controller.refresh();
+            } catch {
+            }
+          });
         })
     }
     .width('100%')
