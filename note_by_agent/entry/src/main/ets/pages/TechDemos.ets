@@ -1,9 +1,17 @@
 // 展示已注册的技术实验项目，并导航到对应实验页面。
 import { DEMO_CATALOG, DemoEntry, DemoStyle, TECH_DEMOS_ENABLED } from '../diagnostics/DemoCatalog';
+import { SystemBars } from '../platform/SystemBars';
 
 @Entry
 @Component
 struct TechDemos {
+  @StorageProp('systemBarTopVp') private topInset: number = 0;
+  @StorageProp('systemBarBottomVp') private bottomInset: number = 0;
+
+  aboutToAppear(): void {
+    SystemBars.applyForBackground('#FFFFFF');
+  }
+
   build() {
     Column({ space: DemoStyle.gap }) {
       Row() {
@@ -28,6 +36,9 @@ struct TechDemos {
           }, (demo: DemoEntry) => demo.id)
         }.layoutWeight(1)
       }
-    }.padding(DemoStyle.padding).width('100%').height('100%')
+    }
+    .padding({ left: DemoStyle.padding, right: DemoStyle.padding,
+      top: DemoStyle.padding + this.topInset, bottom: DemoStyle.padding + this.bottomInset })
+    .width('100%').height('100%').backgroundColor($r('app.color.card_bg'))
   }
 }

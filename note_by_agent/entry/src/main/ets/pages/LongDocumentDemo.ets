@@ -1,10 +1,13 @@
 // 对比长文整篇输入与分块懒加载，并验证位置跳转和文本一致性。
 import { DemoStyle, TECH_DEMOS_ENABLED } from '../diagnostics/DemoCatalog';
 import { DemoChunk, DemoChunkSource, fixtureChunks, fixtureText } from '../diagnostics/LongDocumentFixture';
+import { SystemBars } from '../platform/SystemBars';
 
 @Entry
 @Component
 struct LongDocumentDemo {
+  @StorageProp('systemBarTopVp') private topInset: number = 0;
+  @StorageProp('systemBarBottomVp') private bottomInset: number = 0;
   @State private length: number = 20000;
   @State private paragraphs: boolean = true;
   @State private images: boolean = false;
@@ -20,6 +23,10 @@ struct LongDocumentDemo {
   private startedAt: number = 0;
   private firstVisible: boolean = false;
   private original: string = '';
+
+  aboutToAppear(): void {
+    SystemBars.applyForBackground('#FFFFFF');
+  }
 
   private load(): void {
     this.getUIContext().getFocusController().clearFocus();
@@ -129,6 +136,9 @@ struct LongDocumentDemo {
           Blank()
         }
       }
-    }.padding(DemoStyle.padding).height('100%').width('100%')
+    }
+    .padding({ left: DemoStyle.padding, right: DemoStyle.padding,
+      top: DemoStyle.padding + this.topInset, bottom: DemoStyle.padding + this.bottomInset })
+    .height('100%').width('100%').backgroundColor($r('app.color.card_bg'))
   }
 }

@@ -26,6 +26,10 @@
 
 数据层回归命令：`node scripts/test-desktop-notes.cjs`。脚本使用本机 DevEco 的 TypeScript 编译器；其他环境通过 DEVECO_TYPESCRIPT_PATH 指定 typescript.js。该检查验证选择性保存、应用重启、图片引用、移动/皮肤、写入失败、跨实例更新、多卡片与删除标记，UI 和系统能力仍需真机验收。
 
+## 应用设置
+
+`repository/NoteSettings.ets` 使用 ArkData Preferences 保存首页视图模式：store 名 `note_settings`，键 `view_mode`，值为 `waterfall` 或 `list`。启动时同步读取，缺失或读取失败回退瀑布；切换后异步写入并按顺序排队，写入失败提示但本次运行仍保持新选择。该设置独立于 Note、桌面JSON、卡片和保存快照，不进入笔记字段。
+
 ## 当前字段契约
 
 | 类型 | 字段 | 语义 |
@@ -37,6 +41,7 @@
 | NoteImage | width/height/bytes/small | number/number/number/boolean |
 | DesktopRecord | version/id/deleted/note? | version当前1；墓碑不等于回收站 |
 | DesktopFormLink | formId/noteId | string/string，一卡一个关联文件 |
+| AppSetting | view_mode | string；waterfall/list，Preferences独立存储 |
 
 当前timeLabel是展示文本，新保存为月日时分，无createdAt/updatedAt时间戳。保存前置笔记，移动/换肤保持顺序；启动合入JSON记录，不是按更新时间排序。当前无置顶、回收站、独立Folder/TodoItem、标签表。
 
@@ -44,7 +49,7 @@
 
 ## 后续契约与未决定事项
 
-已确认关系型数据库、有序正文块、附件目录和小型设置存储方向，统一选择性JSON，支持10万字按需读写/渲染、草稿及可关闭的位置恢复；尚未成为正式实现。候选字段、迁移和验收统一见[持久化计划](plans/persistence-plan.md)，不在当前契约预设建表和排序。
+关系型数据库、有序正文块、附件目录和10万字按需渲染尚未成为正式实现；小型设置存储已以 Preferences 接入首页视图模式，其余设置尚未定义。统一选择性JSON、草稿及可关闭的位置恢复仍按未来方向处理；候选字段、迁移和验收统一见[持久化计划](plans/persistence-plan.md)，不在当前契约预设建表和排序。
 
 仍需产品决定：回收站、标签/文件夹管理扩展、相对日期格式、富文本样式范围。现有分组展示和空分组语义已确定。职责与状态见[架构](architecture.md)。
 

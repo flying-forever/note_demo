@@ -80,6 +80,7 @@ function fixture() {
     session, disposed: false, sessionGeneration: 1, deletionPromptVisible: false,
     pickingImage: false, editing: false, params: { id: 'A', group: '旅途' }, original: note('A'),
     selectedGroup: '旅途', skinId: 'white',
+    applyBarStyle: () => {},
     getUIContext: () => ({
       getHostContext: () => ({ filesDir: '/private' }),
       getPromptAction: () => ({

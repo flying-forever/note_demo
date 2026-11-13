@@ -1,6 +1,7 @@
 // 用临时文本对比光标周围与按行显示，并用无字形短条提示隐藏内容。
 import { DemoStyle, TECH_DEMOS_ENABLED } from '../diagnostics/DemoCatalog';
 import { DemoFrameProbe } from '../diagnostics/DemoFrameProbe';
+import { SystemBars } from '../platform/SystemBars';
 import { window } from '@kit.ArkUI';
 
 const INPUT_ID: string = 'privacy-demo-input';
@@ -22,6 +23,8 @@ struct PrivacyEditorDemo {
   @State private holding: boolean = false;
   @State private focused: boolean = false;
   @State private valid: boolean = false;
+  @StorageProp('systemBarTopVp') private topInset: number = 0;
+  @StorageProp('systemBarBottomVp') private bottomInset: number = 0;
   private top: number = 0;
   private bottom: number = 0;
   private editorHeight: number = 0;
@@ -57,6 +60,7 @@ struct PrivacyEditorDemo {
 
   aboutToAppear(): void {
     this.alive = true;
+    SystemBars.applyForBackground('#F2F2F2');
     const token: number = ++this.epoch;
     window.getLastWindow(this.getUIContext().getHostContext()).then((value: window.Window) => {
       if (!this.alive || token !== this.epoch) { return; }
@@ -68,6 +72,8 @@ struct PrivacyEditorDemo {
 
   onPageShow(): void {
     this.visible = true;
+    SystemBars.refreshInsets();
+    SystemBars.applyForBackground('#F2F2F2');
   }
 
   onPageHide(): void {
@@ -310,7 +316,12 @@ struct PrivacyEditorDemo {
           })
         Text(this.notice).fontSize(12).fontColor($r('app.color.text_secondary')).width('100%')
       }
-    }.padding(DemoStyle.padding).width('100%').height('100%')
+    }.padding({
+      top: DemoStyle.padding + this.topInset,
+      bottom: DemoStyle.padding + this.bottomInset,
+      left: DemoStyle.padding,
+      right: DemoStyle.padding
+    }).width('100%').height('100%')
       .backgroundColor($r('app.color.page_bg'))
   }
 }

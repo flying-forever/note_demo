@@ -15,6 +15,7 @@ import { NoteEditorSession } from '../viewmodel/NoteEditorSession';
 import { noteTextCaret } from '../platform/NoteTextHitTest';
 import { importNoteImage, releaseUnusedImages } from '../platform/NoteAttachments';
 import { NoteShare } from '../platform/NoteShare';
+import { SystemBars } from '../platform/SystemBars';
 import { common } from '@kit.AbilityKit';
 
 const EDITOR_PADDING: number = 16;
@@ -52,6 +53,8 @@ const FOLDER_OPTIONS: string[] = NOTE_GROUPS.filter((group: string) => group !==
 @Component
 struct NoteEditor {
   @StorageLink('desktopEditorRequest') @Watch('refreshDesktopTarget') private desktopEditorRequest: string = '';
+  @StorageProp('systemBarTopVp') private topInset: number = 0;
+  @StorageProp('systemBarBottomVp') private bottomInset: number = 0;
   @State private session: NoteEditorSession = new NoteEditorSession();
   private disposed: boolean = false;
   private sessionGeneration: number = 0;
@@ -98,10 +101,13 @@ struct NoteEditor {
     this.editing = this.original === undefined;
     this.selectedGroup = this.original?.group ?? this.params.group;
     this.skinId = this.original?.skinId ?? 'white';
+    this.applyBarStyle();
   }
 
   onPageShow(): void {
     this.pageVisible = true;
+    SystemBars.refreshInsets();
+    this.applyBarStyle();
     const requested = this.getUIContext().getRouter().getParams() as NoteEditorParams;
     if (requested && requested.id !== this.params.id) {
       if (!this.saveBeforeLeaving()) { return; }
@@ -112,6 +118,7 @@ struct NoteEditor {
       this.original = findNote(requested.id);
       this.session.load(this.original);
       this.skinId = this.original?.skinId ?? 'white';
+      this.applyBarStyle();
       this.selectedGroup = this.original?.group ?? requested.group;
       this.editing = this.original === undefined;
       this.skinPickerVisible = false;
@@ -120,6 +127,7 @@ struct NoteEditor {
       this.captionVisible = false;
       this.selectedImage = '';
       this.detailImage = '';
+      this.applyBarStyle();
       this.folderProgress = 0;
       this.bodyScroller.scrollTo({ xOffset: 0, yOffset: 0 });
     }
@@ -168,6 +176,7 @@ struct NoteEditor {
     this.original = latest;
     this.session.load(latest);
     this.skinId = latest.skinId ?? 'white';
+    this.applyBarStyle();
     this.selectedGroup = latest.group;
     this.params.group = latest.group;
   }
@@ -320,8 +329,7 @@ struct NoteEditor {
     } else if (action === '尺寸') {
       this.session.images = this.session.images.map((item: NoteImage) => item.id === id ? copyImage(item, item.caption, !item.small) : item);
     } else if (action === '详情') {
-      this.zoom = 1;
-      this.detailImage = id;
+      this.openImageDetails(id);
     } else {
       this.session.removeImage(id);
       this.selectedImage = '';
@@ -482,7 +490,7 @@ struct NoteEditor {
   ImageDetails() {
     Column({ space: EDITOR_PADDING }) {
       Row() {
-        Button('返回').onClick(() => { this.detailImage = ''; })
+        Button('返回').onClick(() => { this.closeImageDetails(); })
         Blank()
         Text('图片详情').fontColor(Color.White).fontSize(BODY_FONT_SIZE)
       }.width('100%')
@@ -494,7 +502,10 @@ struct NoteEditor {
       Text(this.imageItem(this.detailImage).name + '\n' + this.imageItem(this.detailImage).width + ' × ' +
         this.imageItem(this.detailImage).height + ' 像素 · ' + (this.imageItem(this.detailImage).bytes / 1024).toFixed(1) + ' KB')
         .fontColor(Color.White).fontSize(META_FONT_SIZE).textAlign(TextAlign.Center)
-    }.padding(EDITOR_PADDING).width('100%').height('100%').backgroundColor(Color.Black).clip(true)
+    }
+    .padding({ left: EDITOR_PADDING, right: EDITOR_PADDING, top: EDITOR_PADDING + this.topInset,
+      bottom: EDITOR_PADDING + this.bottomInset })
+    .width('100%').height('100%').backgroundColor(Color.Black).clip(true)
   }
 
   @Builder
@@ -571,7 +582,7 @@ struct NoteEditor {
       return true;
     }
     if (this.detailImage !== '') {
-      this.detailImage = '';
+      this.closeImageDetails();
       return true;
     }
     if (this.selectedImage !== '') {
@@ -609,6 +620,21 @@ struct NoteEditor {
     return findSkin(this.skinId);
   }
 
+  private applyBarStyle(): void {
+    SystemBars.applyForBackground(this.detailImage !== '' ? '#000000' : this.skin().background);
+  }
+
+  private openImageDetails(id: string): void {
+    this.zoom = 1;
+    this.detailImage = id;
+    this.applyBarStyle();
+  }
+
+  private closeImageDetails(): void {
+    this.detailImage = '';
+    this.applyBarStyle();
+  }
+
   private skinIconFilter(): number[] {
     const color: string = this.skin().text;
     const red: number = parseInt(color.substring(1, 3), 16) / 255;
@@ -621,6 +647,7 @@ struct NoteEditor {
     try {
       changeNoteSkin(this.params.id, id);
       this.skinId = id;
+      this.applyBarStyle();
       if (this.original) { this.original.skinId = id; }
     } catch {
       this.getUIContext().getPromptAction().showToast({ message: '皮肤保存失败，请重试' });
@@ -802,7 +829,8 @@ struct NoteEditor {
       }
     }
     .alignItems(HorizontalAlign.Start)
-    .padding(EDITOR_PADDING)
+    .padding({ left: EDITOR_PADDING, right: EDITOR_PADDING, top: EDITOR_PADDING + this.topInset,
+      bottom: EDITOR_PADDING + this.bottomInset })
     .width('100%')
     .height('100%')
     .backgroundColor(isDynamicSkin(this.skin()) ? Color.Transparent : this.skin().background)
@@ -853,12 +881,13 @@ struct NoteEditor {
       if (this.skinPickerVisible) {
         Column()
           .width('100%').height('100%')
-          .position({ x: 0, y: EDITOR_PADDING + NAV_BUTTON_SIZE })
+          .position({ x: 0, y: EDITOR_PADDING + NAV_BUTTON_SIZE + this.topInset })
           .onClick(() => { this.skinPickerVisible = false; })
         Column() {
           NoteSkinPickerView({ selectedId: this.skinId, panelColor: this.skin().panel,
             onSelect: (id: string) => this.selectSkin(id) })
-        }.width('100%').height(SKIN_PANEL_HEIGHT).position({ x: 0, y: '100%' }).translate({ y: -SKIN_PANEL_HEIGHT })
+        }.width('100%').height(SKIN_PANEL_HEIGHT).position({ x: 0, y: '100%' })
+          .translate({ y: -(SKIN_PANEL_HEIGHT + this.bottomInset) })
       }
       if (this.menuVisible || this.folderPickerVisible) {
         Column()
@@ -899,7 +928,7 @@ struct NoteEditor {
         .padding(BODY_INPUT_VERTICAL_PADDING)
         .borderRadius(MENU_CORNER)
         .backgroundColor(this.skin().background)
-        .margin({ top: MENU_TOP, right: EDITOR_PADDING })
+        .margin({ top: MENU_TOP + this.topInset, right: EDITOR_PADDING })
       }
       if (this.folderPickerVisible) {
         Column() {
@@ -917,7 +946,7 @@ struct NoteEditor {
         .padding(EDITOR_PADDING)
         .backgroundColor(this.skin().background)
         .borderRadius(MENU_CORNER)
-        .margin({ top: MENU_TOP, right: EDITOR_PADDING })
+        .margin({ top: MENU_TOP + this.topInset, right: EDITOR_PADDING })
       }
     }
     .width('100%')

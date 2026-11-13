@@ -2,6 +2,7 @@
 import { DemoStyle, TECH_DEMOS_ENABLED } from '../diagnostics/DemoCatalog';
 import { DemoChunk, fixtureText, splitDemoText } from '../diagnostics/LongDocumentFixture';
 import { DemoFrameProbe } from '../diagnostics/DemoFrameProbe';
+import { SystemBars } from '../platform/SystemBars';
 import { LengthMetrics } from '@kit.ArkUI';
 
 const EDITOR_ID: string = 'native-rich-probe';
@@ -10,6 +11,8 @@ const SELECTION_RADIUS: number = 5;
 @Entry
 @Component
 struct NativeEditorDemo {
+  @StorageProp('systemBarTopVp') private topInset: number = 0;
+  @StorageProp('systemBarBottomVp') private bottomInset: number = 0;
   @State private length: number = 20000;
   @State private paragraphs: boolean = false;
   @State private keyboard: boolean = false;
@@ -28,6 +31,10 @@ struct NativeEditorDemo {
   private original: string = '';
   private boundary: number = 0;
   private sample: number = 0;
+
+  aboutToAppear(): void {
+    SystemBars.applyForBackground('#FFFFFF');
+  }
 
   aboutToDisappear(): void {
     this.sample++;
@@ -253,6 +260,9 @@ struct NativeEditorDemo {
           .onPaste(() => { this.pastes++; })
         }
       }
-    }.padding(DemoStyle.padding).width('100%').height('100%')
+    }
+    .padding({ left: DemoStyle.padding, right: DemoStyle.padding,
+      top: DemoStyle.padding + this.topInset, bottom: DemoStyle.padding + this.bottomInset })
+    .width('100%').height('100%').backgroundColor($r('app.color.card_bg'))
   }
 }
